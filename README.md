@@ -1,0 +1,1 @@
+# smartwinnr-capacitor-daily
