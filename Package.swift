@@ -10,7 +10,8 @@ let package = Package(
             targets: ["SmartWinnrDailyPlugin"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", branch: "main")
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", branch: "main"),
+        .package(url: "https://github.com/daily-co/daily-client-ios.git", from: "0.21.0")
     ],
     targets: [
         .target(

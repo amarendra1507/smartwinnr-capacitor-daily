@@ -14,6 +14,7 @@ npx cap sync
 <docgen-index>
 
 * [`echo(...)`](#echo)
+* [`joinCall(...)`](#joincall)
 
 </docgen-index>
 
@@ -31,6 +32,21 @@ echo(options: { value: string; }) => Promise<{ value: string; }>
 | **`options`** | <code>{ value: string; }</code> |
 
 **Returns:** <code>Promise&lt;{ value: string; }&gt;</code>
+
+--------------------
+
+
+### joinCall(...)
+
+```typescript
+joinCall(options: { url: string; token: string; }) => Promise<{ isCallJoined: boolean; }>
+```
+
+| Param         | Type                                         |
+| ------------- | -------------------------------------------- |
+| **`options`** | <code>{ url: string; token: string; }</code> |
+
+**Returns:** <code>Promise&lt;{ isCallJoined: boolean; }&gt;</code>
 
 --------------------
 
