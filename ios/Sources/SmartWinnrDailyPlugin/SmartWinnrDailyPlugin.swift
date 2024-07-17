@@ -29,13 +29,73 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        let tokenString = call.getString("token") ?? nil
-                    
+        guard let tokenString = call.getString("token") else {
+            call.reject("Token is required")
+            return
+        }
+
+        guard let userNameString = call.getString("userName") else {
+            call.reject("Username is required")
+            return
+        }
+
+        guard let coachingTitle = call.getString("coachingTitle") else {
+            call.reject("Coaching title is required")
+            return
+        }
+        
+        guard let maxTime = call.getInt("maximumTime")  else {
+            call.reject("maximumTime title is required")
+            return
+        }
+        
+        guard let coachName = call.getString("coachName")  else {
+            call.reject("coachName title is required")
+            return
+        }
+        
+        
+        
+//        guard let primaryColorRGB = call.getString("primaryColorRGB") else {
+//            call.reject("primaryColorRGB title is required")
+//            return
+//        }
+
+//        guard let maxTime = call.getString("maxTime") else {
+//            call.reject("Max time is required")
+//            return
+//        }
+//
+//        guard let currentTime = call.getString("currentTime") else {
+//            call.reject("Current time is required")
+//            return
+//        }
+        
+        
+        
         DispatchQueue.main.async {
-            let customViewController = DailyCallViewController(urlString: urlString, token: tokenString!)
+//            primaryColorRGB: primaryColorRGB
+            var customViewController = DailyCallViewController(urlString: urlString, token: tokenString, userName: userNameString, coachingTitle: coachingTitle, maxTime: maxTime, coachName: coachName )
+           
+            
+            customViewController.onDismiss = {
+                print("call successfull")
+                let callState = customViewController.getCallStatus()
+                var status = "terminated"
+                if callState.rawValue == "left" {
+                    status = "left"
+                }
+                print(callState)
+                call.resolve([
+                    "value": status
+                ])
+            }
+            
+            
             if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
                 rootViewController.present(customViewController, animated: true, completion: nil)
-                call.resolve()
+//                print("call successfull")
+//                call.resolve()
             } else {
                 call.reject("Failed to present CustomViewController")
             }
