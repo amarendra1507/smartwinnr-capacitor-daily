@@ -77,7 +77,7 @@ class DailyCallViewController: UIViewController {
     }
     
     func startTimer() {
-        print("Timer Started")
+//        print("Timer Started")
         let message = "\(self.coachName) will be joining us shortly."
         self.showAlert(message: message)
         timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateTime), userInfo: nil, repeats: true)
@@ -86,7 +86,7 @@ class DailyCallViewController: UIViewController {
     @objc func updateTime() {
         // Update current time
         currentTime += 1
-        print(currentTime)
+//        print(currentTime)
         
         // Check if current time exceeds max time
         if currentTime > maxTime {
@@ -94,7 +94,7 @@ class DailyCallViewController: UIViewController {
             timer = nil
             // Optionally handle the case when the timer exceeds max time
         } else {
-            print(formatTime(currentTime))
+//            print(formatTime(currentTime))
 //            "\(timeFormatted(totalTime)) / \(timeFormatted(maxTime))"
             timerLabel.text = "\(formatTime(currentTime)) / \(formatTime(maxTime))"
         }
@@ -177,7 +177,7 @@ class DailyCallViewController: UIViewController {
 
         
         guard let roomURL = URL(string: roomURLString) else {
-            print("Invalid room URL")
+//            print("Invalid room URL")
             return
         }
         
@@ -185,10 +185,10 @@ class DailyCallViewController: UIViewController {
             switch result {
             case .success(_):
                 // Handle successful join
-                print("Joined call with ID: ")
+//                print("Joined call with ID: ")
                 self.callClient.set(username: self.userName) { result in
                     switch result {
-                    case .success(let callJoinData):
+                    case .success(_):
                         // Handle successful join
                         print("Joined call with ID: ")
 //                        print(callJoinData)
@@ -402,7 +402,7 @@ class DailyCallViewController: UIViewController {
                 // Handle successful recording stop
                 let participants = self.callClient.participants;
                 let localParticipant = participants.local;
-                print(localParticipant.id)
+//                print(localParticipant.id)
                 self.removeParticipantView(participantId: localParticipant.id)
                 self.callClient.leave() { result in
                     // Returns .left
@@ -496,7 +496,7 @@ extension DailyCallViewController: CallClientDelegate {
     }
             
     func callClient(_ callClient: CallClient, participantJoined participant: Participant) {
-        print("Participant \(participant.id) joined the call. participantJoined")
+//        print("Participant \(participant.id) joined the call. participantJoined")
 
         // Create a new view for this participant's video track.
         let videoView = VideoView()
@@ -527,7 +527,7 @@ extension DailyCallViewController: CallClientDelegate {
             switch result {
             case .success(_):
                 // Handle successful join
-                print("Recording Started")
+//                print("Recording Started")
                 DispatchQueue.main.async {
                     self.removeOverlayView()
                 }
@@ -556,7 +556,7 @@ extension DailyCallViewController: CallClientDelegate {
     // Handle a participant updating (e.g., their tracks changing)
     func callClient(_ callClient: CallClient, participantUpdated participant: Participant) {
 
-        print("Participant \(participant.id) updated. participantUpdated")
+//        print("Participant \(participant.id) updated. participantUpdated")
 
         // Determine whether the video track is for a screen or camera.
         let cameraTrack = participant.media?.camera.track

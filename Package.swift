@@ -11,14 +11,16 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", branch: "main"),
-        .package(url: "https://github.com/daily-co/daily-client-ios.git", from: "0.21.0")
+        .package(url: "https://github.com/daily-co/daily-ios-client.git", from: "0.20.0") // Replace with the correct version
     ],
     targets: [
         .target(
             name: "SmartWinnrDailyPlugin",
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
-                .product(name: "Cordova", package: "capacitor-swift-pm")
+                .product(name: "Cordova", package: "capacitor-swift-pm"),
+                .product(name: "Daily", package: "daily-ios-client"),
+                .product(name: "DailySystemBroadcast", package: "daily-ios-client")
             ],
             path: "ios/Sources/SmartWinnrDailyPlugin"),
         .testTarget(
