@@ -12,7 +12,7 @@ export class SmartWinnrDailyWeb
   }
 
   async joinCall(options: { url: string }): Promise<{ isCallJoined: boolean }> {
-    console.log('ECHO', options);
+    console.log('JOIN_CALL', options);
     return {isCallJoined: true};
   }
 

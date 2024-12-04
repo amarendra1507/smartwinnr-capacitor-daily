@@ -18,6 +18,7 @@ class DailyCallViewController: UIViewController {
     let callClient: CallClient = .init()
     // The local participant video view.
     private let localVideoView: VideoView = .init()
+    private var allParticipantJoined : Bool = false;
     
     private var participantIds: [String] = []
     private var remoteParticipantId : String = "";
@@ -30,20 +31,20 @@ class DailyCallViewController: UIViewController {
     private let userName: String
     private let coachingTitle: String
     private let coachName: String
+    private let isTestMode: Bool
     private let maxTime: TimeInterval
     private var currentTime: TimeInterval = 1
-//    private var primaryColorRGB: String
     var timer:Timer?
-    
-//    primaryColorRGB: String
-    
-    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String ) {
+   
+    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
         self.token = MeetingToken(stringValue: token)
         self.userName = userName
         self.coachingTitle = coachingTitle;
         self.maxTime = TimeInterval(maxTime);
         self.coachName = coachName;
+        self.isTestMode = testMode;
+//        self.useDeepgramTTS = useDeepgramTTS;
 //        self.primaryColorRGB = primaryColorRGB;
 //        self.currentTime = TimeInterval(1);
         super.init(nibName: nil, bundle: nil)
@@ -70,7 +71,23 @@ class DailyCallViewController: UIViewController {
                 self.onDismiss?()
             }
         }
+        
+        self.left();
     }
+    
+    func joined() {
+        DispatchQueue.main.async {
+            self.onJoined?()
+        }
+    }
+    
+    func left() {
+        DispatchQueue.main.async {
+            self.onLeft?()
+        }
+    }
+    
+    
     
     func getCallStatus() -> CallState {
         return self.callClient.callState
@@ -108,6 +125,9 @@ class DailyCallViewController: UIViewController {
     }
     
     var onDismiss: (() -> Void)?
+    var onJoined: (() -> Void)?
+    var onLeft: (() -> Void)?
+
 
     // UI elements
     var leaveRoomButton: UIButton!
@@ -150,7 +170,7 @@ class DailyCallViewController: UIViewController {
 
         // Create and configure the label
         let messageLabel = UILabel()
-        messageLabel.text = "\(self.coachName) will be joining us shortly."
+        messageLabel.text = self.isTestMode ? "Meeting will be starting shortly." : "\(self.coachName) will be joining us shortly."
         messageLabel.textAlignment = .center
         messageLabel.font = UIFont.systemFont(ofSize: 20)
         messageLabel.textColor = .white
@@ -174,6 +194,10 @@ class DailyCallViewController: UIViewController {
             messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 10),
             messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
         ])
+        
+//        // Add tap gesture recognizer to overlay view
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
+        overlayView.addGestureRecognizer(tapGesture)
 
         
         guard let roomURL = URL(string: roomURLString) else {
@@ -181,7 +205,8 @@ class DailyCallViewController: UIViewController {
             return
         }
         
-        self.callClient.join(url: roomURL, token: token) { result in
+    
+        self.callClient.join(url: roomURL, token: token, settings: ClientSettingsUpdate() ) { result in
             switch result {
             case .success(_):
                 // Handle successful join
@@ -192,6 +217,34 @@ class DailyCallViewController: UIViewController {
                         // Handle successful join
                         print("Joined call with ID: ")
 //                        print(callJoinData)
+                        self.callClient.updateInputs(.set(
+                                    camera: .set(
+                                        settings: .set(facingMode: .set(.user))
+                                    )
+                                ), completion: nil)
+                        
+                        
+                        if (self.isTestMode) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                self.allParticipantJoined = true;
+                                
+                                self.callClient.startRecording() { result in
+                                    switch result {
+                                    case .success(_):
+                                        // Handle successful join
+                        //                print("Recording Started")
+                                        
+                                        DispatchQueue.main.async {
+                                            self.removeOverlayView()
+                                        }
+                        //                self.startTimer()
+                                    case .failure(let error):
+                                        // Handle join failure
+                                        print("Failed startRecording: \(error.localizedDescription)")
+                                    }
+                                }
+                            }
+                        }
                         
                     case .failure(let error):
                         // Handle join failure
@@ -207,6 +260,23 @@ class DailyCallViewController: UIViewController {
         // Add the local participant's video view to the stack view.
         self.participantsStack.addArrangedSubview(self.localVideoView)
         
+    }
+    
+    @objc func copyTextToClipboard() {
+        let message = "\(self.roomURLString)?t=\(self.token)";
+        UIPasteboard.general.string = message
+
+        // Show a brief confirmation to the user
+        let alert = UIAlertController(title: "Copied!", message: "Meeting link has been copied to clipboard.", preferredStyle: .alert)
+        self.present(alert, animated: true, completion: nil)
+        
+        // Dismiss the alert after 1.5 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            alert.dismiss(animated: true, completion: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.removeOverlayView()
+            }
+        }
     }
     
     
@@ -409,11 +479,17 @@ class DailyCallViewController: UIViewController {
                     _ = self.callClient.callState
                     self.timer?.invalidate()
                     self.timer = nil
-
                     self.leave();
                 }
             case .failure(let error):
                 // Handle join failure
+                self.callClient.leave() { result in
+                    // Returns .left
+                    _ = self.callClient.callState
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.leave();
+                }
                 print("Failed to stop recording: \(error.localizedDescription)")
             }
         }
@@ -485,8 +561,55 @@ class DailyCallViewController: UIViewController {
             self.overlayView.alpha = 0
         }) { _ in
             self.overlayView.removeFromSuperview()
+            if (self.isTestMode == true && !self.allParticipantJoined) {
+                DispatchQueue.main.async {
+                    self.createOverlayView()
+                }
+            }
+           
         }
     }
+    
+    func createOverlayView() {
+        // Create and configure the overlay view
+        overlayView = UIView()
+        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        overlayView.layer.cornerRadius = 10
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        self.view.addSubview(overlayView)
+
+        // Create and configure the label
+        let messageLabel = UILabel()
+        messageLabel.text = "Click here to copy this meeting link and share with your coach.";
+        messageLabel.textAlignment = .center
+        messageLabel.font = UIFont.systemFont(ofSize: 20)
+        messageLabel.textColor = .white
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.numberOfLines = 0
+        messageLabel.lineBreakMode = .byWordWrapping
+        overlayView.addSubview(messageLabel)
+        
+        // Set constraints for the overlay view
+        NSLayoutConstraint.activate([
+            overlayView.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+            overlayView.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
+            overlayView.widthAnchor.constraint(equalTo: self.view.widthAnchor, multiplier: 0.8),
+            overlayView.heightAnchor.constraint(equalTo: self.view.heightAnchor, multiplier: 0.2)
+        ])
+
+        // Set constraints for the message label
+        NSLayoutConstraint.activate([
+            messageLabel.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 10),
+            messageLabel.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -10),
+            messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 10),
+            messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
+        ])
+        
+        // Add tap gesture recognizer to overlay view
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
+        overlayView.addGestureRecognizer(tapGesture)
+    }
+        
 }
 
 extension DailyCallViewController: CallClientDelegate {
@@ -532,6 +655,7 @@ extension DailyCallViewController: CallClientDelegate {
                     self.removeOverlayView()
                 }
 //                self.startTimer()
+                self.joined();
             case .failure(let error):
                 // Handle join failure
                 print("Failed startRecording: \(error.localizedDescription)")
@@ -589,11 +713,23 @@ extension DailyCallViewController: CallClientDelegate {
                 nameLabel.widthAnchor.constraint(lessThanOrEqualTo: self.localVideoView.widthAnchor, multiplier: 0.5), // Adjust the width as needed
                 nameLabel.heightAnchor.constraint(equalToConstant: 30) // Adjust the height as needed
             ])
+            
 
+            if (self.isTestMode) {
+                DispatchQueue.main.async {
+                    self.removeOverlayView()
+                }
+            }
             
         } else {
             // Update the track for a remote participant's video view.
             self.videoViews[participant.id]?.track = videoTrack
+            if (self.isTestMode) {
+                DispatchQueue.main.async {
+                    self.removeOverlayView()
+                }
+            }
+
         }
     }
     

@@ -15,6 +15,9 @@ npx cap sync
 
 * [`echo(...)`](#echo)
 * [`joinCall(...)`](#joincall)
+* [`addListener('onJoined', ...)`](#addlisteneronjoined-)
+* [`addListener('onLeft', ...)`](#addlisteneronleft-)
+* [Interfaces](#interfaces)
 
 </docgen-index>
 
@@ -49,5 +52,53 @@ joinCall(options: { url: string; token: string; }) => Promise<{ isCallJoined: bo
 **Returns:** <code>Promise&lt;{ isCallJoined: boolean; }&gt;</code>
 
 --------------------
+
+
+### addListener('onJoined', ...)
+
+```typescript
+addListener(eventName: 'onJoined', listenerFunc: () => void) => Promise<PluginListenerHandle>
+```
+
+| Param              | Type                       |
+| ------------------ | -------------------------- |
+| **`eventName`**    | <code>'onJoined'</code>    |
+| **`listenerFunc`** | <code>() =&gt; void</code> |
+
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
+
+--------------------
+
+
+### addListener('onLeft', ...)
+
+```typescript
+addListener(eventName: 'onLeft', listenerFunc: () => void) => Promise<PluginListenerHandle>
+```
+
+Called when the screen recording is stopped.
+
+Only available on iOS for now.
+
+| Param              | Type                       |
+| ------------------ | -------------------------- |
+| **`eventName`**    | <code>'onLeft'</code>      |
+| **`listenerFunc`** | <code>() =&gt; void</code> |
+
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
+
+**Since:** 3.0.2
+
+--------------------
+
+
+### Interfaces
+
+
+#### PluginListenerHandle
+
+| Prop         | Type                                      |
+| ------------ | ----------------------------------------- |
+| **`remove`** | <code>() =&gt; Promise&lt;void&gt;</code> |
 
 </docgen-api>

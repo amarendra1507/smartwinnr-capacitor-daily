@@ -54,6 +54,15 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
+        guard let testMode = call.getBool("testMode")  else {
+            call.reject("testMode title is required")
+            return
+        }
+        
+//        guard let useDeepgramTTS = call.getBool("useDeepgramTTS")  else {
+//            call.reject("testMode title is required")
+//            return
+//        }
         
         
 //        guard let primaryColorRGB = call.getString("primaryColorRGB") else {
@@ -71,11 +80,11 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
 //            return
 //        }
         
-        
+//        useDeepgramTTS: useDeepgramTTS
         
         DispatchQueue.main.async {
 //            primaryColorRGB: primaryColorRGB
-            var customViewController = DailyCallViewController(urlString: urlString, token: tokenString, userName: userNameString, coachingTitle: coachingTitle, maxTime: maxTime, coachName: coachName )
+            var customViewController = DailyCallViewController(urlString: urlString, token: tokenString, userName: userNameString, coachingTitle: coachingTitle, maxTime: maxTime, coachName: coachName, testMode: testMode )
            
             
             customViewController.onDismiss = {
@@ -91,41 +100,53 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 ])
             }
             
+//            customViewController.onJoined = {
+//                print("Participant Joined Triggered")
+//                let eventPayload: [String: Any] = ["participantJoined": true]
+//                self.notifyListeners("onJoined", data: eventPayload)
+//            }
+//            
+//            customViewController.onLeft = {
+//                print("Participant Left Triggered")
+//                let callState = customViewController.getCallStatus()
+//                var status = "terminated"
+//                if callState.rawValue == "left" {
+//                    status = "left"
+//                }
+//                print(callState)
+//                let eventPayload: [String: Any] = ["participantLeft": status]
+////                self.notifyListeners("onLeft", data: eventPayload)
+////                call.resolve([
+////                    "data": eventPayload
+////                ])
+//                self.notifyListeners("onLeft", data: eventPayload)
+//            }
+
+            
+            
+            
+//            if let rootViewController = UIApplication.shared.keyWindow?.rootViewController as? UINavigationController {
+//                    rootViewController.pushViewController(customViewController, animated: true)
+//                } else if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
+//                    let navigationController = UINavigationController(rootViewController: customViewController)
+//                    UIApplication.shared.keyWindow?.rootViewController = navigationController
+//                } else {
+//                    call.reject("Failed to present CustomViewController")
+//                }
+//            
             
             if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
                 rootViewController.present(customViewController, animated: true, completion: nil)
 //                print("call successfull")
-//                call.resolve()
+//                 call.resolve([
+//                    "value": "Plugin Started Successfully"
+//                ])
             } else {
                 call.reject("Failed to present CustomViewController")
             }
             
         }
                         
-//                        let storyboard = UIStoryboard(name: "DailyCall", bundle: nil)
-//                        guard let customViewController = storyboard.instantiateViewController(withIdentifier: "DailyCallViewController") as? DailyCallViewController else {
-//                            call.reject("Failed to instantiate CustomViewController from storyboard")
-//                            return
-//                        }
-//                        
-//                        if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
-//                            rootViewController.present(customViewController, animated: true, completion: nil)
-//                            call.resolve()
-//                        } else {
-//                            call.reject("Failed to present CustomViewController")
-//                        }
-                    
-                    
-//                    await implementation.joinCall(url: url) { result in
-//                        switch result {
-//                        case .success(let message):
-//                            call.resolve([
-//                                "message": message
-//                            ])
-//                        case .failure(let error):
-//                            call.reject("Failed to join call: \(error.localizedDescription)")
-//                        }
-//                    }
                 
     }
 }
