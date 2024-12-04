@@ -11,6 +11,26 @@ import Daily
 import DailySystemBroadcast
 
 class DailyCallViewController: UIViewController {
+    // Add this struct if you don't already have it
+    struct DailyParticipant {
+        let id: String
+        let name: String
+    }
+
+    // Add these methods inside the class
+    @objc private func buttonTouchDown() {
+        UIView.animate(withDuration: 0.1) {
+            self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            self.leaveRoomButton.alpha = 0.9
+        }
+    }
+
+    @objc private func buttonTouchUp() {
+        UIView.animate(withDuration: 0.1) {
+            self.leaveRoomButton.transform = .identity
+            self.leaveRoomButton.alpha = 1.0
+        }
+    }
     
 //    App Black RGB 9, 30, 66, 1
 //    App Background Grey 244, 245, 247, 0.08
@@ -22,9 +42,10 @@ class DailyCallViewController: UIViewController {
     
     private var participantIds: [String] = []
     private var remoteParticipantId : String = "";
+    private var bottomView: UIView!
 
-   // A dictionary of remote participant video views.
-   private var videoViews: [ParticipantID: VideoView] = [:]
+    // A dictionary of remote participant video views.
+    private var videoViews: [ParticipantID: VideoView] = [:]
 
     private let token: MeetingToken
     private let roomURLString: String
@@ -35,6 +56,29 @@ class DailyCallViewController: UIViewController {
     private let maxTime: TimeInterval
     private var currentTime: TimeInterval = 1
     var timer:Timer?
+    
+    // UI elements
+    var leaveRoomButton: UIButton!
+    var microphoneInputButton: UIButton!
+    var cameraInputButton: UIButton!
+    var participantsStack: UIStackView!
+    var currentTimeLabel: UILabel!
+    var titleLabel: UILabel!
+    var timerLabel: UILabel!
+    var timerView: UIView!
+    var topView: UIView!
+    var overlayView: UIView!
+    var endButtonContainer: UIView!
+    
+    var onCallStateChange: ((CallState) -> Void)?
+    var onNetworkQualityChange: ((String) -> Void)?
+    var onParticipantJoined: ((String) -> Void)?
+    
+    var onDismiss: (() -> Void)?
+    var onJoined: (() -> Void)?
+    var onLeft: (() -> Void)?
+    // var onDismiss: (() -> Void)?
+
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
@@ -44,9 +88,6 @@ class DailyCallViewController: UIViewController {
         self.maxTime = TimeInterval(maxTime);
         self.coachName = coachName;
         self.isTestMode = testMode;
-//        self.useDeepgramTTS = useDeepgramTTS;
-//        self.primaryColorRGB = primaryColorRGB;
-//        self.currentTime = TimeInterval(1);
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -87,32 +128,48 @@ class DailyCallViewController: UIViewController {
         }
     }
     
+    // In your existing call state handling method (where you handle call state changes)
+    private func handleCallStateChange(_ state: CallState) {
+        onCallStateChange?(state)
+    }
     
+    // In your network quality monitoring method
+    private func handleNetworkQualityChange(_ quality: String) {
+        onNetworkQualityChange?(quality)
+    }
     
+    // In your participant joined handler
+    private func handleParticipantJoined(_ participant: Participant) {
+        print("Participant \(participant) joined. handleParticipantJoined")
+        let participantString = "\(participant)"
+        onParticipantJoined?(participantString)
+    }
+    
+    // In your dismiss/close method
+    override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        onDismiss?()
+        super.dismiss(animated: flag, completion: completion)
+    }
+
+   // Update the return type to be non-optional
     func getCallStatus() -> CallState {
         return self.callClient.callState
     }
     
     func startTimer() {
-//        print("Timer Started")
         let message = "\(self.coachName) will be joining us shortly."
         self.showAlert(message: message)
         timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateTime), userInfo: nil, repeats: true)
     }
     
     @objc func updateTime() {
-        // Update current time
         currentTime += 1
-//        print(currentTime)
-        
         // Check if current time exceeds max time
         if currentTime > maxTime {
             timer?.invalidate()
             timer = nil
             // Optionally handle the case when the timer exceeds max time
         } else {
-//            print(formatTime(currentTime))
-//            "\(timeFormatted(totalTime)) / \(timeFormatted(maxTime))"
             timerLabel.text = "\(formatTime(currentTime)) / \(formatTime(maxTime))"
         }
     }
@@ -124,22 +181,6 @@ class DailyCallViewController: UIViewController {
         return String(format: "%02d:%02d",  minutes, seconds)
     }
     
-    var onDismiss: (() -> Void)?
-    var onJoined: (() -> Void)?
-    var onLeft: (() -> Void)?
-
-
-    // UI elements
-    var leaveRoomButton: UIButton!
-    var microphoneInputButton: UIButton!
-    var cameraInputButton: UIButton!
-    var participantsStack: UIStackView!
-    var currentTimeLabel: UILabel!
-//    var currentTime: TimeInterval!;
-//    var maxTime: TimeInterval!
-    var timerLabel: UILabel!
-    var overlayView: UIView!
-    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -147,7 +188,6 @@ class DailyCallViewController: UIViewController {
         self.isModalInPresentation = true;
         // Setup CallClient delegate
         self.callClient.delegate = self
-        
         
         // Create buttons
         createButtons()
@@ -195,13 +235,12 @@ class DailyCallViewController: UIViewController {
             messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
         ])
         
-//        // Add tap gesture recognizer to overlay view
+        // Add tap gesture recognizer to overlay view
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
         overlayView.addGestureRecognizer(tapGesture)
 
         
         guard let roomURL = URL(string: roomURLString) else {
-//            print("Invalid room URL")
             return
         }
         
@@ -209,14 +248,11 @@ class DailyCallViewController: UIViewController {
         self.callClient.join(url: roomURL, token: token, settings: ClientSettingsUpdate() ) { result in
             switch result {
             case .success(_):
-                // Handle successful join
-//                print("Joined call with ID: ")
+                print("Joined call")
                 self.callClient.set(username: self.userName) { result in
                     switch result {
                     case .success(_):
                         // Handle successful join
-                        print("Joined call with ID: ")
-//                        print(callJoinData)
                         self.callClient.updateInputs(.set(
                                     camera: .set(
                                         settings: .set(facingMode: .set(.user))
@@ -231,13 +267,9 @@ class DailyCallViewController: UIViewController {
                                 self.callClient.startRecording() { result in
                                     switch result {
                                     case .success(_):
-                                        // Handle successful join
-                        //                print("Recording Started")
-                                        
                                         DispatchQueue.main.async {
                                             self.removeOverlayView()
                                         }
-                        //                self.startTimer()
                                     case .failure(let error):
                                         // Handle join failure
                                         print("Failed startRecording: \(error.localizedDescription)")
@@ -295,35 +327,104 @@ class DailyCallViewController: UIViewController {
     }
     
     func createButtons() {
+
+        // Create bottom container view
+        bottomView = UIView()
+        bottomView.translatesAutoresizingMaskIntoConstraints = false
+        bottomView.backgroundColor = UIColor.white.withAlphaComponent(0.95)
+        bottomView.layer.cornerRadius = 16
+        bottomView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner] // Round only top corners
+        
+        // Add shadow to bottom view
+        bottomView.layer.shadowColor = UIColor.black.cgColor
+        bottomView.layer.shadowOffset = CGSize(width: 0, height: -2)
+        bottomView.layer.shadowRadius = 4
+        bottomView.layer.shadowOpacity = 0.1
+        view.addSubview(bottomView)
+
+        // Create a container view for the end button
+        endButtonContainer = UIView()
+        endButtonContainer.translatesAutoresizingMaskIntoConstraints = false
+        endButtonContainer.backgroundColor = .clear
+        bottomView.addSubview(endButtonContainer)
+
+        // Create gradient layer for the button
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.colors = [
+            UIColor(red: 0.95, green: 0.2, blue: 0.2, alpha: 1.0).cgColor,  // Bright red at top
+            UIColor(red: 0.85, green: 0.1, blue: 0.1, alpha: 1.0).cgColor   // Darker red at bottom
+        ]
+        gradientLayer.locations = [0.0, 1.0]
+        gradientLayer.cornerRadius = 25
+
+        // Create the button
         leaveRoomButton = UIButton(type: .system)
-        leaveRoomButton.setTitle("END ROLE PLAY", for: .normal)
+        leaveRoomButton.setTitle("End Role Play", for: .normal)
         leaveRoomButton.setTitleColor(.white, for: .normal)
+        leaveRoomButton.backgroundColor = .systemRed  // Fallback red color
+        leaveRoomButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
         leaveRoomButton.translatesAutoresizingMaskIntoConstraints = false
-        leaveRoomButton.backgroundColor = .systemRed
+        
+        // Add icon to button
+        let buttonConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        let phoneImage = UIImage(systemName: "phone.down.fill", withConfiguration: buttonConfig)
+        leaveRoomButton.setImage(phoneImage, for: .normal)
         leaveRoomButton.tintColor = .white
+        leaveRoomButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 0)
+        leaveRoomButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0)
+        
+        // Add shadow and other visual effects
         leaveRoomButton.layer.cornerRadius = 25
+        leaveRoomButton.layer.shadowColor = UIColor(red: 0.85, green: 0.1, blue: 0.1, alpha: 0.5).cgColor
+        leaveRoomButton.layer.shadowOffset = CGSize(width: 0, height: 4)
+        leaveRoomButton.layer.shadowRadius = 8
+        leaveRoomButton.layer.shadowOpacity = 0.5
+        
+        // Add gradient background
+        leaveRoomButton.layer.insertSublayer(gradientLayer, at: 0)
+        
+        // Add highlight effect
+        let highlightView = UIView()
+        highlightView.backgroundColor = .white
+        highlightView.alpha = 0.1
+        highlightView.layer.cornerRadius = 25
+        highlightView.frame = CGRect(x: 0, y: 0, width: view.frame.width * 0.6, height: 50)
+        highlightView.frame.size.height = highlightView.frame.height / 2
+        leaveRoomButton.addSubview(highlightView)
+
         leaveRoomButton.addTarget(self, action: #selector(didTapLeaveRoom), for: .touchUpInside)
+        endButtonContainer.addSubview(leaveRoomButton)
+
+        // Add button press animation
+        leaveRoomButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
+        leaveRoomButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside])
+       
+        let controlButtonConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         
         microphoneInputButton = UIButton(type: .system)
         microphoneInputButton.translatesAutoresizingMaskIntoConstraints = false
-        microphoneInputButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        microphoneInputButton.tintColor = .white
-        microphoneInputButton.layer.cornerRadius = 10
-        let micImage = UIImage(systemName: "mic.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .medium))
-        microphoneInputButton.setImage(micImage, for: .normal)
+        microphoneInputButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        microphoneInputButton.layer.cornerRadius = 20
+        microphoneInputButton.setImage(UIImage(systemName: "mic.fill", withConfiguration: controlButtonConfig), for: .normal)
+        microphoneInputButton.layer.shadowColor = UIColor.black.cgColor
+        microphoneInputButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        microphoneInputButton.layer.shadowRadius = 4
+        microphoneInputButton.layer.shadowOpacity = 0.2
         microphoneInputButton.addTarget(self, action: #selector(didTapToggleMicrophone), for: .touchUpInside)
         
         cameraInputButton = UIButton(type: .system)
         cameraInputButton.translatesAutoresizingMaskIntoConstraints = false
-        cameraInputButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        cameraInputButton.tintColor = .white
-        cameraInputButton.layer.cornerRadius = 10
-        let videoImage = UIImage(systemName: "video.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .medium))
-        cameraInputButton.setImage(videoImage, for: .normal)
+        cameraInputButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        cameraInputButton.layer.cornerRadius = 20
+        cameraInputButton.setImage(UIImage(systemName: "video.fill", withConfiguration: controlButtonConfig), for: .normal)
+        cameraInputButton.layer.shadowColor = UIColor.black.cgColor
+        cameraInputButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        cameraInputButton.layer.shadowRadius = 4
+        cameraInputButton.layer.shadowOpacity = 0.2
         cameraInputButton.addTarget(self, action: #selector(didTapToggleCamera), for: .touchUpInside)
                 
         // Set up title label
-        let titleLabel = UILabel()
+        titleLabel = UILabel()
         titleLabel.text = self.coachingTitle
         titleLabel.textAlignment = .center
         titleLabel.font = UIFont.systemFont(ofSize: 20)
@@ -335,75 +436,32 @@ class DailyCallViewController: UIViewController {
         titleLabel.numberOfLines = 0 // Enable multiple lines
         titleLabel.lineBreakMode = .byWordWrapping // Enable word wrapping
                 
-        let bottomView = UIView()
-        bottomView.translatesAutoresizingMaskIntoConstraints = false
-        bottomView.backgroundColor = .systemBackground
-        bottomView.layer.cornerRadius = 10
-        view.addSubview(bottomView)
-        
-        timerLabel = UILabel()
-        timerLabel.text = ""
-        timerLabel.textAlignment = .center
-        timerLabel.backgroundColor = .systemBackground
-        timerLabel.textColor = UIColor.orange
-        timerLabel.font = UIFont.boldSystemFont(ofSize: 24)
-        timerLabel.translatesAutoresizingMaskIntoConstraints = false
-        timerLabel.layer.cornerRadius = 10
-        timerLabel.layer.masksToBounds = true
-//        view.addSubview(timerLabel)
-        
-        let topView = UIView()
+    
+        topView = UIView()
         topView.translatesAutoresizingMaskIntoConstraints = false
         topView.backgroundColor = UIColor(red: hRed, green: hGreen, blue: hBlue, alpha: hAlpha)
         topView.layer.cornerRadius = 10
         view.addSubview(topView)
         topView.addSubview(titleLabel)
-        
-        // Set up constraints for the top view
-        NSLayoutConstraint.activate([
-            topView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-            topView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            topView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            topView.heightAnchor.constraint(equalToConstant: 50) // Adjust height as needed
-        ])
-        
-        // Set up constraints for the titleLabel
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topView.topAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: topView.leadingAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: topView.trailingAnchor),
-            titleLabel.bottomAnchor.constraint(equalTo: topView.bottomAnchor)
-        ])
-        
-        let timerView = UIView()
+                
+        // Timer setup
+        timerView = UIView()
         timerView.translatesAutoresizingMaskIntoConstraints = false
-        timerView.backgroundColor = UIColor(red: hRed, green: hGreen, blue: hBlue, alpha: hAlpha)
+        timerView.backgroundColor = .clear
         timerView.layer.cornerRadius = 10
         view.addSubview(timerView)
+
+        timerLabel = UILabel()
+        timerLabel.text = ""
+        timerLabel.textAlignment = .center
+        timerLabel.backgroundColor = .clear // Changed from .systemBackground
+        timerLabel.textColor = UIColor.orange
+        timerLabel.font = UIFont.boldSystemFont(ofSize: 24)
+        timerLabel.translatesAutoresizingMaskIntoConstraints = false
         timerView.addSubview(timerLabel)
         
-        // Set up constraints for the top view
-        NSLayoutConstraint.activate([
-            timerView.topAnchor.constraint(equalTo: view.topAnchor, constant: 65),
-            timerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            timerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            timerView.heightAnchor.constraint(equalToConstant: 50) // Adjust height as needed
-        ])
-        
-        // Set up constraints for the titleLabel
-        NSLayoutConstraint.activate([
-            timerLabel.topAnchor.constraint(equalTo: timerView.topAnchor),
-            timerLabel.leadingAnchor.constraint(equalTo: timerView.leadingAnchor),
-            timerLabel.trailingAnchor.constraint(equalTo: timerView.trailingAnchor),
-            timerLabel.bottomAnchor.constraint(equalTo: timerView.bottomAnchor)
-        ])
-        
-        bottomView.addSubview(leaveRoomButton)
         self.localVideoView.addSubview(cameraInputButton)
         self.localVideoView.addSubview(microphoneInputButton)
-        // bottomView.addSubview(cameraInputButton)
-        // bottomView.addSubview(microphoneInputButton)
-       
         // Constraints for bottomView and buttons will be added in setupConstraints()
     }
     
@@ -412,54 +470,92 @@ class DailyCallViewController: UIViewController {
         participantsStack.translatesAutoresizingMaskIntoConstraints = false
         participantsStack.axis = .vertical
         participantsStack.distribution = .fillEqually
-        participantsStack.backgroundColor = .white
-        participantsStack.layer.cornerRadius = 10
-        participantsStack.spacing = 10
+        participantsStack.spacing = 16
+        participantsStack.backgroundColor = .clear
+        participantsStack.layer.cornerRadius = 12
+        participantsStack.clipsToBounds = true
         view.addSubview(participantsStack)
+        
+        // Add gradient background
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.colors = [
+            UIColor.systemBackground.withAlphaComponent(0.95).cgColor,
+            UIColor.systemBackground.withAlphaComponent(0.8).cgColor
+        ]
+        gradientLayer.locations = [0.0, 1.0]
+        gradientLayer.frame = view.bounds
+        view.layer.insertSublayer(gradientLayer, at: 0)
     }
     
     func setupConstraints() {
         // Safe area
         let safeArea = view.safeAreaLayoutGuide
-        
+        let margin: CGFloat = 16.0
+
         // Bottom view
-        let bottomView = leaveRoomButton.superview!
-        let topView = leaveRoomButton.superview!
-        let margin: CGFloat = 8.0 // Adjust the margin as needed
-        
+        // let bottomView = leaveRoomButton.superview!
+        // let topView = leaveRoomButton.superview!
+
         NSLayoutConstraint.activate([
-            // Top View
-            topView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.15),
-            topView.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
-            topView.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
-            topView.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor),
+
+            topView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            topView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            topView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            topView.heightAnchor.constraint(equalToConstant: 50), // Adjust height as needed
             
-            // Bottom view
-            bottomView.heightAnchor.constraint(equalTo: view.heightAnchor, constant: 50),
-            bottomView.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
-            bottomView.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
-            bottomView.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -20),
+            titleLabel.topAnchor.constraint(equalTo: topView.topAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: topView.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: topView.trailingAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: topView.bottomAnchor),
             
-            leaveRoomButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            leaveRoomButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            leaveRoomButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            leaveRoomButton.heightAnchor.constraint(equalToConstant: 50),
+            // Timer View constraints
+            timerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 65),
+            timerView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            timerView.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor, multiplier: 0.4),
+            timerView.heightAnchor.constraint(equalToConstant: 50),
+
+            // Timer Label constraints - centered within timer view
+            timerLabel.centerXAnchor.constraint(equalTo: timerView.centerXAnchor),
+            timerLabel.centerYAnchor.constraint(equalTo: timerView.centerYAnchor),
+            timerLabel.leadingAnchor.constraint(equalTo: timerView.leadingAnchor, constant: 8),
+            timerLabel.trailingAnchor.constraint(equalTo: timerView.trailingAnchor, constant: -8),
             
-            microphoneInputButton.leadingAnchor.constraint(equalTo: self.localVideoView.leadingAnchor, constant: margin), // Place at the left
-            microphoneInputButton.bottomAnchor.constraint(equalTo: self.localVideoView.bottomAnchor, constant: -margin), // Place at the bottom
-            microphoneInputButton.widthAnchor.constraint(equalToConstant: 30), // Adjust the width as needed
-            microphoneInputButton.heightAnchor.constraint(equalToConstant: 30), // Adjust the height as needed
-            
-            cameraInputButton.leadingAnchor.constraint(equalTo: microphoneInputButton.trailingAnchor, constant: margin), // Place next to the microphone button
-            cameraInputButton.bottomAnchor.constraint(equalTo: self.localVideoView.bottomAnchor, constant: -margin), // Place at the bottom
-            cameraInputButton.widthAnchor.constraint(equalToConstant: 30), // Adjust the width as needed
-            cameraInputButton.heightAnchor.constraint(equalToConstant: 30), // Adjust the height as needed
-            
-            // Participants Stack
+            // Participants Stack - Main video container
             participantsStack.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 120),
-            participantsStack.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 23),
-            participantsStack.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -20),
-            participantsStack.bottomAnchor.constraint(equalTo: bottomView.topAnchor, constant: 50)
+            participantsStack.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: margin),
+            participantsStack.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -margin),
+            participantsStack.bottomAnchor.constraint(equalTo: bottomView.topAnchor, constant: -margin),
+            
+            // Control buttons - Float over video
+            microphoneInputButton.leadingAnchor.constraint(equalTo: localVideoView.leadingAnchor, constant: margin),
+            microphoneInputButton.bottomAnchor.constraint(equalTo: localVideoView.bottomAnchor, constant: -margin),
+            microphoneInputButton.widthAnchor.constraint(equalToConstant: 40),
+            microphoneInputButton.heightAnchor.constraint(equalToConstant: 40),
+            
+            cameraInputButton.leadingAnchor.constraint(equalTo: microphoneInputButton.trailingAnchor, constant: margin/2),
+            cameraInputButton.bottomAnchor.constraint(equalTo: localVideoView.bottomAnchor, constant: -margin),
+            cameraInputButton.widthAnchor.constraint(equalToConstant: 40),
+            cameraInputButton.heightAnchor.constraint(equalToConstant: 40),
+
+            // Bottom View constraints - attach to the bottom of the view
+            bottomView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            // Calculate bottom view height based on safe area
+            bottomView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -100),
+
+            // End Button Container constraints
+            endButtonContainer.centerXAnchor.constraint(equalTo: bottomView.centerXAnchor),
+            endButtonContainer.topAnchor.constraint(equalTo: bottomView.topAnchor, constant: 16),
+            endButtonContainer.widthAnchor.constraint(equalTo: bottomView.widthAnchor, multiplier: 0.6),
+            endButtonContainer.heightAnchor.constraint(equalToConstant: 50),
+
+            // Leave Room Button constraints
+            leaveRoomButton.topAnchor.constraint(equalTo: endButtonContainer.topAnchor),
+            leaveRoomButton.leadingAnchor.constraint(equalTo: endButtonContainer.leadingAnchor),
+            leaveRoomButton.trailingAnchor.constraint(equalTo: endButtonContainer.trailingAnchor),
+            leaveRoomButton.bottomAnchor.constraint(equalTo: endButtonContainer.bottomAnchor),
             
         ])
         
@@ -534,8 +630,14 @@ class DailyCallViewController: UIViewController {
             let videoView = VideoView()
             videoView.translatesAutoresizingMaskIntoConstraints = false
             videoView.track = videoTrack
-            videoView.layer.cornerRadius = 10 // Adjust the corner radius as needed
-            videoView.layer.masksToBounds = true // Ensure the corners are clipped
+            videoView.layer.cornerRadius = 12
+            videoView.clipsToBounds = true
+            videoView.layer.borderWidth = 2
+            videoView.layer.borderColor = UIColor.systemGray5.cgColor
+            videoView.layer.shadowColor = UIColor.black.cgColor
+            videoView.layer.shadowOffset = CGSize(width: 0, height: 2)
+            videoView.layer.shadowRadius = 4
+            videoView.layer.shadowOpacity = 0.2
             videoViews[participantId] = videoView
             participantsStack.addArrangedSubview(videoView)
         }
@@ -549,16 +651,68 @@ class DailyCallViewController: UIViewController {
         }
     }
 
-    func showAlert(message: String) {
-        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
-        present(alert, animated: true, completion: nil)
+    func createOverlayView() {
+        // Create and configure the overlay view with white background
+        overlayView = UIView()
+        overlayView.backgroundColor = .white // Pure white background
+        overlayView.layer.cornerRadius = 16
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add subtle shadow
+        overlayView.layer.shadowColor = UIColor.black.cgColor
+        overlayView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        overlayView.layer.shadowRadius = 8
+        overlayView.layer.shadowOpacity = 0.1
+        
+        self.view.addSubview(overlayView)
+
+        // Create and configure the label with black text
+        let messageLabel = UILabel()
+        messageLabel.text = self.isTestMode ? 
+        "Meeting will be starting shortly." : 
+        (self.allParticipantJoined ? 
+            "Click here to copy this meeting link and share with your coach." : 
+            "\(self.coachName) will be joining us shortly.")
+        messageLabel.textAlignment = .center
+        messageLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        messageLabel.textColor = .black // Changed to black text
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.numberOfLines = 0
+        messageLabel.lineBreakMode = .byWordWrapping
+        overlayView.addSubview(messageLabel)
+
+        // Set constraints for the overlay view with improved positioning
+        NSLayoutConstraint.activate([
+            overlayView.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+            overlayView.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
+            overlayView.widthAnchor.constraint(equalTo: self.view.widthAnchor, multiplier: 0.85),
+            overlayView.heightAnchor.constraint(lessThanOrEqualTo: self.view.heightAnchor, multiplier: 0.25)
+        ])
+
+        // Set constraints for the message label with better padding
+        NSLayoutConstraint.activate([
+            messageLabel.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 24),
+            messageLabel.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -24),
+            messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 24),
+            messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -24)
+        ])
+
+        // Add tap gesture recognizer to overlay view
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
+        overlayView.addGestureRecognizer(tapGesture)
+        
+        // Optional: Add subtle animation when showing
+        overlayView.alpha = 0
+        UIView.animate(withDuration: 0.3) {
+            self.overlayView.alpha = 1
+        }
     }
-    
-    // Method to remove the overlay view
+
+    // Update the removeOverlayView method for smooth dismissal
     func removeOverlayView() {
         UIView.animate(withDuration: 0.3, animations: {
             self.overlayView.alpha = 0
+            self.overlayView.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }) { _ in
             self.overlayView.removeFromSuperview()
             if (self.isTestMode == true && !self.allParticipantJoined) {
@@ -566,50 +720,31 @@ class DailyCallViewController: UIViewController {
                     self.createOverlayView()
                 }
             }
-           
         }
     }
-    
-    func createOverlayView() {
-        // Create and configure the overlay view
-        overlayView = UIView()
-        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.7)
-        overlayView.layer.cornerRadius = 10
-        overlayView.translatesAutoresizingMaskIntoConstraints = false
-        self.view.addSubview(overlayView)
 
-        // Create and configure the label
-        let messageLabel = UILabel()
-        messageLabel.text = "Click here to copy this meeting link and share with your coach.";
-        messageLabel.textAlignment = .center
-        messageLabel.font = UIFont.systemFont(ofSize: 20)
-        messageLabel.textColor = .white
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
-        messageLabel.numberOfLines = 0
-        messageLabel.lineBreakMode = .byWordWrapping
-        overlayView.addSubview(messageLabel)
-        
-        // Set constraints for the overlay view
-        NSLayoutConstraint.activate([
-            overlayView.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
-            overlayView.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
-            overlayView.widthAnchor.constraint(equalTo: self.view.widthAnchor, multiplier: 0.8),
-            overlayView.heightAnchor.constraint(equalTo: self.view.heightAnchor, multiplier: 0.2)
-        ])
-
-        // Set constraints for the message label
-        NSLayoutConstraint.activate([
-            messageLabel.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 10),
-            messageLabel.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -10),
-            messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 10),
-            messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
-        ])
-        
-        // Add tap gesture recognizer to overlay view
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
-        overlayView.addGestureRecognizer(tapGesture)
+    // Update showAlert method to match the style
+    func showAlert(message: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.view.window != nil else { return }
+            
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.view.tintColor = UIColor(red: self.cRed, green: self.cGreen, blue: self.cBlue, alpha: self.cAlpha)
+            alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
+            
+            if let alertView = alert.view {
+                alertView.layer.cornerRadius = 16
+                alertView.backgroundColor = UIColor.white
+                alertView.layer.shadowColor = UIColor.black.cgColor
+                alertView.layer.shadowOffset = CGSize(width: 0, height: 4)
+                alertView.layer.shadowRadius = 8
+                alertView.layer.shadowOpacity = 0.1
+            }
+            
+            self.present(alert, animated: true, completion: nil)
+        }
     }
-        
+            
 }
 
 extension DailyCallViewController: CallClientDelegate {
@@ -619,18 +754,18 @@ extension DailyCallViewController: CallClientDelegate {
     }
             
     func callClient(_ callClient: CallClient, participantJoined participant: Participant) {
-//        print("Participant \(participant.id) joined the call. participantJoined")
-
+        print("Participant \(participant.id) joined the call. participantJoined")
         // Create a new view for this participant's video track.
         let videoView = VideoView()
-        
-        videoView.layer.cornerRadius = 10 // Adjust the corner radius as needed
-        videoView.layer.masksToBounds = true // Ensure the corners are clipped
+        videoView.videoScaleMode = .fit
+        videoView.backgroundColor = .black  // Optional: adds black background for letterboxing
+
+        videoView.layer.cornerRadius = 10
+        videoView.layer.masksToBounds = true
         
         let nameLabel = UILabel()
         nameLabel.text = participant.info.username ?? self.userName
         nameLabel.textAlignment = .center
-//        nameLabel.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.layer.cornerRadius = 10
@@ -650,11 +785,10 @@ extension DailyCallViewController: CallClientDelegate {
             switch result {
             case .success(_):
                 // Handle successful join
-//                print("Recording Started")
+                print("Recording Started")
                 DispatchQueue.main.async {
                     self.removeOverlayView()
                 }
-//                self.startTimer()
                 self.joined();
             case .failure(let error):
                 // Handle join failure
@@ -679,9 +813,13 @@ extension DailyCallViewController: CallClientDelegate {
     
     // Handle a participant updating (e.g., their tracks changing)
     func callClient(_ callClient: CallClient, participantUpdated participant: Participant) {
-
-//        print("Participant \(participant.id) updated. participantUpdated")
-
+        print("Participant \(participant) updated. participantUpdated")
+        // Convert the participant object to a string representation
+        let participantString = "\(participant)"
+        
+        // Pass the string representation to the handleParticipantJoined method
+        handleParticipantJoined(participant)
+        
         // Determine whether the video track is for a screen or camera.
         let cameraTrack = participant.media?.camera.track
         let screenTrack = participant.media?.screenVideo.track
@@ -689,13 +827,14 @@ extension DailyCallViewController: CallClientDelegate {
 
         if participant.info.isLocal {
             // Update the track for the local participant's video view.
+            self.localVideoView.videoScaleMode = .fit
+            self.localVideoView.backgroundColor = .black
             self.localVideoView.track = videoTrack
             self.localVideoView.layer.cornerRadius = 10
             self.localVideoView.layer.masksToBounds = true
             let nameLabel = UILabel()
             nameLabel.text = self.userName
             nameLabel.textAlignment = .center
-//            nameLabel.backgroundColor = UIColor.black.withAlphaComponent(0.5)
             nameLabel.textColor = .white
             nameLabel.translatesAutoresizingMaskIntoConstraints = false
             nameLabel.layer.cornerRadius = 10
@@ -732,6 +871,17 @@ extension DailyCallViewController: CallClientDelegate {
 
         }
     }
+
+    // When call state changes
+    func callClient(_ callClient: CallClient, callStateUpdated callState: CallState) {
+        handleCallStateChange(callState)
+    }
+
+    // When network quality changes
+    func callClient(_ callClient: CallClient, networkQualityChanged quality: String) {
+        handleNetworkQualityChange(quality)
+    }
+
     
 }
 

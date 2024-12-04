@@ -15,6 +15,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "joinCall", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = SmartWinnrDaily()
+    private var customViewController: DailyCallViewController?
 
     @objc func echo(_ call: CAPPluginCall) {
         let value = call.getString("value") ?? ""
@@ -55,96 +56,74 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         guard let testMode = call.getBool("testMode")  else {
-            call.reject("testMode title is required")
+            call.reject("testMode is required")
             return
         }
-        
-//        guard let useDeepgramTTS = call.getBool("useDeepgramTTS")  else {
-//            call.reject("testMode title is required")
-//            return
-//        }
-        
-        
-//        guard let primaryColorRGB = call.getString("primaryColorRGB") else {
-//            call.reject("primaryColorRGB title is required")
-//            return
-//        }
-
-//        guard let maxTime = call.getString("maxTime") else {
-//            call.reject("Max time is required")
-//            return
-//        }
-//
-//        guard let currentTime = call.getString("currentTime") else {
-//            call.reject("Current time is required")
-//            return
-//        }
-        
-//        useDeepgramTTS: useDeepgramTTS
-        
-        DispatchQueue.main.async {
-//            primaryColorRGB: primaryColorRGB
-            var customViewController = DailyCallViewController(urlString: urlString, token: tokenString, userName: userNameString, coachingTitle: coachingTitle, maxTime: maxTime, coachName: coachName, testMode: testMode )
-           
+                
+          DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             
-            customViewController.onDismiss = {
-                print("call successfull")
-                let callState = customViewController.getCallStatus()
-                var status = "terminated"
-                if callState.rawValue == "left" {
-                    status = "left"
-                }
-                print(callState)
-                call.resolve([
-                    "value": status
+            // Create and initialize the view controller
+            let viewController = DailyCallViewController(
+                urlString: urlString, 
+                token: tokenString, 
+                userName: userNameString, 
+                coachingTitle: coachingTitle, 
+                maxTime: maxTime, 
+                coachName: coachName, 
+                testMode: testMode
+            )
+            
+            // Store the reference
+            self.customViewController = viewController
+            
+            // Set up all callbacks
+            viewController.onCallStateChange = { [weak self] state in
+                self?.notifyListeners("callStateChanged", data: [
+                    "state": state.rawValue
                 ])
             }
             
-//            customViewController.onJoined = {
-//                print("Participant Joined Triggered")
-//                let eventPayload: [String: Any] = ["participantJoined": true]
-//                self.notifyListeners("onJoined", data: eventPayload)
-//            }
-//            
-//            customViewController.onLeft = {
-//                print("Participant Left Triggered")
-//                let callState = customViewController.getCallStatus()
-//                var status = "terminated"
-//                if callState.rawValue == "left" {
-//                    status = "left"
-//                }
-//                print(callState)
-//                let eventPayload: [String: Any] = ["participantLeft": status]
-////                self.notifyListeners("onLeft", data: eventPayload)
-////                call.resolve([
-////                    "data": eventPayload
-////                ])
-//                self.notifyListeners("onLeft", data: eventPayload)
-//            }
-
+            viewController.onNetworkQualityChange = { [weak self] quality in
+                self?.notifyListeners("networkQualityChanged", data: [
+                    "quality": quality
+                ])
+            }
             
+            viewController.onParticipantJoined = { [weak self] participant in
+                self?.notifyListeners("participantJoined", data: [
+                    "participant": participant
+                ])
+            }
             
+            viewController.onDismiss = { [weak self] in
+            guard let self = self,
+                  let vc = self.customViewController else { return }
             
-//            if let rootViewController = UIApplication.shared.keyWindow?.rootViewController as? UINavigationController {
-//                    rootViewController.pushViewController(customViewController, animated: true)
-//                } else if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
-//                    let navigationController = UINavigationController(rootViewController: customViewController)
-//                    UIApplication.shared.keyWindow?.rootViewController = navigationController
-//                } else {
-//                    call.reject("Failed to present CustomViewController")
-//                }
-//            
+            // Get call state directly without optional binding
+            let callState = vc.getCallStatus()
+            var status = "terminated"
             
-            if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
-                rootViewController.present(customViewController, animated: true, completion: nil)
-//                print("call successfull")
-//                 call.resolve([
-//                    "value": "Plugin Started Successfully"
-//                ])
+            if callState.rawValue == "left" {
+                status = "left"
+            }
+            
+            self.notifyListeners("callEnded", data: [
+                "status": status
+            ])
+            
+            call.resolve([
+                "value": status
+            ])
+        }
+            
+             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+            let rootViewController = windowScene.windows.first?.rootViewController {
+                viewController.modalPresentationStyle = .fullScreen // Set full screen presentation
+                rootViewController.present(viewController, animated: true, completion: nil)
             } else {
                 call.reject("Failed to present CustomViewController")
             }
-            
         }
                         
                 
