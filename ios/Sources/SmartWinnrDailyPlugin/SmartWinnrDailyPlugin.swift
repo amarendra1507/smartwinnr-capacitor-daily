@@ -60,7 +60,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
                 
-          DispatchQueue.main.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
             // Create and initialize the view controller
@@ -95,29 +95,49 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                     "participant": participant
                 ])
             }
-            
-            viewController.onDismiss = { [weak self] in
-            guard let self = self,
-                  let vc = self.customViewController else { return }
-            
-            // Get call state directly without optional binding
-            let callState = vc.getCallStatus()
-            var status = "terminated"
-            
-            if callState.rawValue == "left" {
-                status = "left"
+
+            viewController.onRecordingStarted = { [weak self] recordingId, startTime in
+                self?.notifyListeners("recordingStarted", data: [
+                    "recordingId": recordingId,
+                    "startTime": startTime
+                ])
+            }
+
+            viewController.onRecordingStopped = { [weak self] recordingId, stopTime in
+                self?.notifyListeners("recordingStopped", data: [
+                    "recordingId": recordingId,
+                    "stopTime": stopTime
+                ])
+            }
+
+            viewController.onRecordingError = { [weak self] error in
+                self?.notifyListeners("recordingError", data: [
+                    "error": error
+                ])
             }
             
-            self.notifyListeners("callEnded", data: [
-                "status": status
-            ])
+            viewController.onDismiss = { [weak self] in
+                guard let self = self,
+                let vc = self.customViewController else { return }
             
-            call.resolve([
-                "value": status
-            ])
-        }
+                // Get call state directly without optional binding
+                let callState = vc.getCallStatus()
+                var status = "terminated"
+                
+                if callState.rawValue == "left" {
+                    status = "left"
+                }
+
+                self.notifyListeners("callEnded", data: [
+                    "status": status
+                ])
+
+                call.resolve([
+                    "value": status
+                ])
+            }
             
-             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootViewController = windowScene.windows.first?.rootViewController {
                 viewController.modalPresentationStyle = .fullScreen // Set full screen presentation
                 rootViewController.present(viewController, animated: true, completion: nil)

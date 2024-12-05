@@ -77,6 +77,11 @@ class DailyCallViewController: UIViewController {
     var onDismiss: (() -> Void)?
     var onJoined: (() -> Void)?
     var onLeft: (() -> Void)?
+    var onRecordingStarted: ((String, TimeInterval) -> Void)?
+    var onRecordingStopped: ((String, TimeInterval) -> Void)?
+    var onRecordingError: ((String) -> Void)?
+    private var recordingStartTime: TimeInterval?
+    private var currentRecordingId: String?
     // var onDismiss: (() -> Void)?
 
    
@@ -561,36 +566,36 @@ class DailyCallViewController: UIViewController {
         
     }
     
-    @objc func didTapLeaveRoom()  {
-        self.callClient.stopRecording() { result in
+    @objc func didTapLeaveRoom() {
+        self.callClient.stopRecording() { [weak self] result in
+            guard let self = self else { return }
             switch result {
             case .success(_):
                 // Handle successful recording stop
-                let participants = self.callClient.participants;
-                let localParticipant = participants.local;
-//                print(localParticipant.id)
+                if let recordingId = self.currentRecordingId {
+                    let stopTime = Date().timeIntervalSince1970
+                    self.onRecordingStopped?(recordingId, stopTime)
+                }
+                
+                let participants = self.callClient.participants
+                let localParticipant = participants.local
                 self.removeParticipantView(participantId: localParticipant.id)
                 self.callClient.leave() { result in
-                    // Returns .left
-                    _ = self.callClient.callState
                     self.timer?.invalidate()
                     self.timer = nil
-                    self.leave();
+                    self.leave()
                 }
             case .failure(let error):
-                // Handle join failure
+                print("Failed to stop recording: \(error.localizedDescription)")
+                // Trigger the new error callback
+                self.onRecordingError?(error.localizedDescription)
                 self.callClient.leave() { result in
-                    // Returns .left
-                    _ = self.callClient.callState
                     self.timer?.invalidate()
                     self.timer = nil
-                    self.leave();
+                    self.leave()
                 }
-                print("Failed to stop recording: \(error.localizedDescription)")
             }
         }
-        
-        
     }
     
     @objc func didTapToggleMicrophone() {
@@ -781,18 +786,29 @@ extension DailyCallViewController: CallClientDelegate {
             nameLabel.heightAnchor.constraint(equalToConstant: 30) // Adjust the height as needed
         ])
         
-        self.callClient.startRecording() { result in
+        self.callClient.startRecording() { [weak self] result in
+            guard let self = self else { return }
             switch result {
-            case .success(_):
-                // Handle successful join
+            case .success(let recordingInfo):
+                // Handle successful recording start
                 print("Recording Started")
+                self.recordingStartTime = Date().timeIntervalSince1970
+                self.currentRecordingId = "\(recordingInfo)"
+                
+                // Trigger recording started callback
+                if let recordingId = self.currentRecordingId,
+                    let startTime = self.recordingStartTime {
+                    self.onRecordingStarted?(recordingId, startTime)
+                }
+                
                 DispatchQueue.main.async {
                     self.removeOverlayView()
                 }
-                self.joined();
+                self.joined()
             case .failure(let error):
-                // Handle join failure
                 print("Failed startRecording: \(error.localizedDescription)")
+                // Trigger the new error callback
+                self.onRecordingError?(error.localizedDescription)
             }
         }
 
@@ -815,7 +831,6 @@ extension DailyCallViewController: CallClientDelegate {
     func callClient(_ callClient: CallClient, participantUpdated participant: Participant) {
         print("Participant \(participant) updated. participantUpdated")
         // Convert the participant object to a string representation
-        let participantString = "\(participant)"
         
         // Pass the string representation to the handleParticipantJoined method
         handleParticipantJoined(participant)
