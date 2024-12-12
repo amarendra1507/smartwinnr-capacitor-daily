@@ -336,24 +336,11 @@ class DailyCallViewController: UIViewController {
         // Create bottom container view
         bottomView = UIView()
         bottomView.translatesAutoresizingMaskIntoConstraints = false
-        bottomView.backgroundColor = UIColor.white.withAlphaComponent(0.95)
-        bottomView.layer.cornerRadius = 16
-        bottomView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner] // Round only top corners
-        
-        // Add shadow to bottom view
-        bottomView.layer.shadowColor = UIColor.black.cgColor
-        bottomView.layer.shadowOffset = CGSize(width: 0, height: -2)
-        bottomView.layer.shadowRadius = 4
-        bottomView.layer.shadowOpacity = 0.1
+        bottomView.backgroundColor = .clear // Changed from white with alpha
+        // Remove corner radius and shadow properties
         view.addSubview(bottomView)
 
-        // Create a container view for the end button
-        endButtonContainer = UIView()
-        endButtonContainer.translatesAutoresizingMaskIntoConstraints = false
-        endButtonContainer.backgroundColor = .clear
-        bottomView.addSubview(endButtonContainer)
-
-        // Create gradient layer for the button
+         // Create gradient layer for the button
         let gradientLayer = CAGradientLayer()
         gradientLayer.colors = [
             UIColor(red: 0.95, green: 0.2, blue: 0.2, alpha: 1.0).cgColor,  // Bright red at top
@@ -362,13 +349,16 @@ class DailyCallViewController: UIViewController {
         gradientLayer.locations = [0.0, 1.0]
         gradientLayer.cornerRadius = 25
 
-        // Create the button
-        leaveRoomButton = UIButton(type: .system)
+        // Create the button and add directly to bottomView
+        leaveRoomButton = UIButton(type: .custom) // Change to .custom instead of .system
         leaveRoomButton.setTitle("End Role Play", for: .normal)
         leaveRoomButton.setTitleColor(.white, for: .normal)
-        leaveRoomButton.backgroundColor = .systemRed  // Fallback red color
+        leaveRoomButton.backgroundColor = .systemRed
         leaveRoomButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
         leaveRoomButton.translatesAutoresizingMaskIntoConstraints = false
+        leaveRoomButton.isUserInteractionEnabled = true // Explicitly enable user interaction
+        bottomView.addSubview(leaveRoomButton)
+
         
         // Add icon to button
         let buttonConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
@@ -388,21 +378,11 @@ class DailyCallViewController: UIViewController {
         // Add gradient background
         leaveRoomButton.layer.insertSublayer(gradientLayer, at: 0)
         
-        // Add highlight effect
-        let highlightView = UIView()
-        highlightView.backgroundColor = .white
-        highlightView.alpha = 0.1
-        highlightView.layer.cornerRadius = 25
-        highlightView.frame = CGRect(x: 0, y: 0, width: view.frame.width * 0.6, height: 50)
-        highlightView.frame.size.height = highlightView.frame.height / 2
-        leaveRoomButton.addSubview(highlightView)
-
+        // Add multiple targets to ensure touch handling
         leaveRoomButton.addTarget(self, action: #selector(didTapLeaveRoom), for: .touchUpInside)
-        endButtonContainer.addSubview(leaveRoomButton)
-
-        // Add button press animation
         leaveRoomButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
-        leaveRoomButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside])
+        leaveRoomButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+
        
         let controlButtonConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         
@@ -513,17 +493,16 @@ class DailyCallViewController: UIViewController {
             titleLabel.trailingAnchor.constraint(equalTo: topView.trailingAnchor),
             titleLabel.bottomAnchor.constraint(equalTo: topView.bottomAnchor),
             
-            // Timer View constraints
+            // Updated Timer View constraints
             timerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 65),
-            timerView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            timerView.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor, multiplier: 0.4),
+            timerView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: margin),
+            timerView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -margin),
             timerView.heightAnchor.constraint(equalToConstant: 50),
 
-            // Timer Label constraints - centered within timer view
-            timerLabel.centerXAnchor.constraint(equalTo: timerView.centerXAnchor),
+            // Updated Timer Label constraints
             timerLabel.centerYAnchor.constraint(equalTo: timerView.centerYAnchor),
-            timerLabel.leadingAnchor.constraint(equalTo: timerView.leadingAnchor, constant: 8),
-            timerLabel.trailingAnchor.constraint(equalTo: timerView.trailingAnchor, constant: -8),
+            timerLabel.leadingAnchor.constraint(equalTo: timerView.leadingAnchor),
+            timerLabel.trailingAnchor.constraint(equalTo: timerView.trailingAnchor),
             
             // Participants Stack - Main video container
             participantsStack.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 120),
@@ -542,36 +521,45 @@ class DailyCallViewController: UIViewController {
             cameraInputButton.widthAnchor.constraint(equalToConstant: 40),
             cameraInputButton.heightAnchor.constraint(equalToConstant: 40),
 
-            // Bottom View constraints - attach to the bottom of the view
+            // Bottom View constraints - update to be closer to the bottom
             bottomView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            
-            // Calculate bottom view height based on safe area
-            bottomView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -100),
+            bottomView.heightAnchor.constraint(equalToConstant: 80), // Adjust height as needed
 
-            // End Button Container constraints
-            endButtonContainer.centerXAnchor.constraint(equalTo: bottomView.centerXAnchor),
-            endButtonContainer.topAnchor.constraint(equalTo: bottomView.topAnchor, constant: 16),
-            endButtonContainer.widthAnchor.constraint(equalTo: bottomView.widthAnchor, multiplier: 0.6),
-            endButtonContainer.heightAnchor.constraint(equalToConstant: 50),
-
-            // Leave Room Button constraints
-            leaveRoomButton.topAnchor.constraint(equalTo: endButtonContainer.topAnchor),
-            leaveRoomButton.leadingAnchor.constraint(equalTo: endButtonContainer.leadingAnchor),
-            leaveRoomButton.trailingAnchor.constraint(equalTo: endButtonContainer.trailingAnchor),
-            leaveRoomButton.bottomAnchor.constraint(equalTo: endButtonContainer.bottomAnchor),
+            // Update leave room button constraints to attach directly to bottomView
+            leaveRoomButton.centerXAnchor.constraint(equalTo: bottomView.centerXAnchor),
+            leaveRoomButton.topAnchor.constraint(equalTo: bottomView.topAnchor, constant: 16),
+            leaveRoomButton.widthAnchor.constraint(equalTo: bottomView.widthAnchor, multiplier: 0.6),
+            leaveRoomButton.heightAnchor.constraint(equalToConstant: 50),
             
         ])
         
     }
     
     @objc func didTapLeaveRoom() {
+        // Add visual feedback
+        UIView.animate(withDuration: 0.1, animations: {
+            self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                self.leaveRoomButton.transform = .identity
+            }
+        }
+
+        // Disable button to prevent multiple taps
+        self.leaveRoomButton.isEnabled = false
+        
         self.callClient.stopRecording() { [weak self] result in
             guard let self = self else { return }
+            
+            // Re-enable button in case of failure
+            DispatchQueue.main.async {
+                self.leaveRoomButton.isEnabled = true
+            }
+            
             switch result {
             case .success(_):
-                // Handle successful recording stop
                 if let recordingId = self.currentRecordingId {
                     let stopTime = Date().timeIntervalSince1970
                     self.onRecordingStopped?(recordingId, stopTime)
@@ -587,7 +575,6 @@ class DailyCallViewController: UIViewController {
                 }
             case .failure(let error):
                 print("Failed to stop recording: \(error.localizedDescription)")
-                // Trigger the new error callback
                 self.onRecordingError?(error.localizedDescription)
                 self.callClient.leave() { result in
                     self.timer?.invalidate()
