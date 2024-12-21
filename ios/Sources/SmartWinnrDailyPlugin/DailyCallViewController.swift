@@ -249,7 +249,6 @@ class DailyCallViewController: UIViewController {
             return
         }
         
-    
         self.callClient.join(url: roomURL, token: token, settings: ClientSettingsUpdate() ) { result in
             switch result {
             case .success(_):
@@ -259,12 +258,13 @@ class DailyCallViewController: UIViewController {
                     case .success(_):
                         // Handle successful join
                         self.callClient.updateInputs(.set(
-                                    camera: .set(
-                                        settings: .set(facingMode: .set(.user))
-                                    )
-                                ), completion: nil)
-                        
-                        
+                            camera: .set(
+                                settings: .set(facingMode: .set(.user)
+                                )
+                            )
+                        ), completion: nil)
+
+
                         if (self.isTestMode) {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                                 self.allParticipantJoined = true;
@@ -298,7 +298,7 @@ class DailyCallViewController: UIViewController {
         self.participantsStack.addArrangedSubview(self.localVideoView)
         
     }
-    
+
     @objc func copyTextToClipboard() {
         let message = "\(self.roomURLString)?t=\(self.token)";
         UIPasteboard.general.string = message

@@ -12,7 +12,8 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "SmartWinnrDaily"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "echo", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "joinCall", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "joinCall", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "endCall", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = SmartWinnrDaily()
     private var customViewController: DailyCallViewController?
@@ -21,6 +22,14 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         let value = call.getString("value") ?? ""
         call.resolve([
             "value": implementation.echo(value)
+        ])
+    }
+
+    @objc func endCall(_ call: CAPPluginCall) {
+        print("endCall triggered")
+        self.customViewController?.leave()
+        call.resolve([
+            "value": "left"
         ])
     }
 
@@ -136,6 +145,8 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                     "value": status
                 ])
             }
+
+            
             
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootViewController = windowScene.windows.first?.rootViewController {
