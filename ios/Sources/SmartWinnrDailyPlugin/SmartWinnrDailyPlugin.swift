@@ -103,6 +103,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 self?.notifyListeners("participantJoined", data: [
                     "participant": participant
                 ])
+                print("Participant Joined")
             }
 
             viewController.onRecordingStarted = { [weak self] recordingId, startTime in
@@ -110,6 +111,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                     "recordingId": recordingId,
                     "startTime": startTime
                 ])
+                print("Recording Started")
             }
 
             viewController.onRecordingStopped = { [weak self] recordingId, stopTime in
@@ -117,12 +119,14 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                     "recordingId": recordingId,
                     "stopTime": stopTime
                 ])
+                print("Recording Stopped")
             }
 
             viewController.onRecordingError = { [weak self] error in
                 self?.notifyListeners("recordingError", data: [
                     "error": error
                 ])
+                print("Error Occured")
             }
             
             viewController.onDismiss = { [weak self] in
@@ -131,6 +135,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             
                 // Get call state directly without optional binding
                 let callState = vc.getCallStatus()
+                print("Call state", callState, callState.rawValue)
                 var status = "terminated"
                 
                 if callState.rawValue == "left" {
@@ -141,17 +146,16 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                     "status": status
                 ])
 
-                call.resolve([
-                    "value": status
-                ])
             }
-
             
             
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootViewController = windowScene.windows.first?.rootViewController {
                 viewController.modalPresentationStyle = .fullScreen // Set full screen presentation
                 rootViewController.present(viewController, animated: true, completion: nil)
+                call.resolve([
+                    "value": "Plugin started successfully."
+                ])
             } else {
                 call.reject("Failed to present CustomViewController")
             }

@@ -162,13 +162,24 @@ class DailyCallViewController: UIViewController {
     }
     
     func startTimer() {
-        let message = "\(self.coachName) will be joining us shortly."
-        self.showAlert(message: message)
+        // let message = "\(self.coachName) will be joining us shortly."
+        // self.showAlert(message: message)
         timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateTime), userInfo: nil, repeats: true)
     }
     
     @objc func updateTime() {
         currentTime += 1
+
+        // Calculate remaining time
+        let remainingTime = maxTime - currentTime
+
+        // Check if exactly 1 minute remains
+        if remainingTime == 60 {
+            DispatchQueue.main.async {
+                self.showTimeWarningAlert()
+            }
+        }
+
         // Check if current time exceeds max time
         if currentTime > maxTime {
             timer?.invalidate()
@@ -215,7 +226,7 @@ class DailyCallViewController: UIViewController {
 
         // Create and configure the label
         let messageLabel = UILabel()
-        messageLabel.text = self.isTestMode ? "Meeting will be starting shortly." : "\(self.coachName) will be joining us shortly."
+        messageLabel.text = self.isTestMode ? "Meeting will be starting shortly." : "\(self.coachName) will be joining us shortly please wait."
         messageLabel.textAlignment = .center
         messageLabel.font = UIFont.systemFont(ofSize: 20)
         messageLabel.textColor = .white
@@ -240,9 +251,11 @@ class DailyCallViewController: UIViewController {
             messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
         ])
         
-        // Add tap gesture recognizer to overlay view
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
-        overlayView.addGestureRecognizer(tapGesture)
+        if (self.isTestMode) {
+            // Add tap gesture recognizer to overlay view
+            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
+            overlayView.addGestureRecognizer(tapGesture)
+        }
 
         
         guard let roomURL = URL(string: roomURLString) else {
@@ -664,7 +677,7 @@ class DailyCallViewController: UIViewController {
         "Meeting will be starting shortly." : 
         (self.allParticipantJoined ? 
             "Click here to copy this meeting link and share with your coach." : 
-            "\(self.coachName) will be joining us shortly.")
+            "\(self.coachName) will be joining us shortly please wait.")
         messageLabel.textAlignment = .center
         messageLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
         messageLabel.textColor = .black // Changed to black text
@@ -689,9 +702,12 @@ class DailyCallViewController: UIViewController {
             messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -24)
         ])
 
-        // Add tap gesture recognizer to overlay view
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
-        overlayView.addGestureRecognizer(tapGesture)
+        if (self.isTestMode) {
+            // self.overlayView.isHidden = true
+            // Add tap gesture recognizer to overlay view
+            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(copyTextToClipboard))
+            overlayView.addGestureRecognizer(tapGesture)
+        }
         
         // Optional: Add subtle animation when showing
         overlayView.alpha = 0
@@ -736,6 +752,38 @@ class DailyCallViewController: UIViewController {
             self.present(alert, animated: true, completion: nil)
         }
     }
+
+    // Add this new method
+    private func showTimeWarningAlert() {
+        let alert = UIAlertController(
+            title: "Time Warning",
+            message: "Your session will end in 1 minute.",
+            preferredStyle: .alert
+        )
+        
+        // Customize alert appearance
+        alert.view.tintColor = UIColor(red: cRed, green: cGreen, blue: cBlue, alpha: cAlpha)
+        if let alertView = alert.view {
+            alertView.layer.cornerRadius = 16
+            alertView.backgroundColor = .white
+            alertView.layer.shadowColor = UIColor.black.cgColor
+            alertView.layer.shadowOffset = CGSize(width: 0, height: 4)
+            alertView.layer.shadowRadius = 8
+            alertView.layer.shadowOpacity = 0.1
+        }
+        
+        let okAction = UIAlertAction(title: "OK", style: .default)
+        alert.addAction(okAction)
+        
+        // Present the alert
+        self.present(alert, animated: true)
+        
+        // Automatically dismiss after 5 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            alert.dismiss(animated: true)
+        }
+    }
+
             
 }
 
