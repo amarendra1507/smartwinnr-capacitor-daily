@@ -9,8 +9,12 @@ import Foundation
 import UIKit
 import Daily
 import DailySystemBroadcast
+import ReplayKit
+
 
 class DailyCallViewController: UIViewController {
+    @IBOutlet private weak var systemBroadcastPickerView: UIView!
+
     // Add this struct if you don't already have it
     struct DailyParticipant {
         let id: String
@@ -199,11 +203,24 @@ class DailyCallViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
         view.backgroundColor = .systemBackground
         self.modalPresentationStyle = .fullScreen
         self.isModalInPresentation = true;
         // Setup CallClient delegate
         self.callClient.delegate = self
+
+            // Safely handle the broadcast picker view
+        if let broadcastPickerView = self.systemBroadcastPickerView as? RPSystemBroadcastPickerView {
+            broadcastPickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
+            broadcastPickerView.showsMicrophoneButton = false
+        } else {
+            // Create a new broadcast picker view if the outlet is not connected
+            let pickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+            pickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
+            pickerView.showsMicrophoneButton = false
+            self.systemBroadcastPickerView = pickerView
+        }
         
         // Create buttons
         createButtons()
@@ -345,6 +362,13 @@ class DailyCallViewController: UIViewController {
     }
     
     func createButtons() {
+
+        // Replace the existing broadcast picker creation with:
+//        if let picker = DailyBroadcastHelper.shared.setupBroadcastPickerView() {
+//            broadcastPickerView = picker
+//            broadcastPickerView.translatesAutoresizingMaskIntoConstraints = false
+//            self.localVideoView.addSubview(broadcastPickerView)
+//        }
 
         // Create bottom container view
         bottomView = UIView()
@@ -788,6 +812,29 @@ class DailyCallViewController: UIViewController {
 }
 
 extension DailyCallViewController: CallClientDelegate {
+
+     func callClientDidDetectStartOfSystemBroadcast(
+        _ callClient: CallClient
+    ) {
+        print("System broadcast started")
+        
+
+        callClient.updateInputs(
+            .set(screenVideo: .set(isEnabled: .set(true))),
+            completion: nil
+        )
+    }
+
+    public func callClientDidDetectEndOfSystemBroadcast(
+        _ callClient: CallClient
+    ) {
+        print("System broadcast ended")
+
+        callClient.updateInputs(
+            .set(screenVideo: .set(isEnabled: .set(false))),
+            completion: nil
+        )
+    }
     
     func callClient(_ callClient: CallClient, inputsUpdated inputs: InputSettings) {
         updateControls()
