@@ -9,35 +9,32 @@ import Foundation
 import UIKit
 import Daily
 import DailySystemBroadcast
-import ReplayKit
+
 
 
 class DailyCallViewController: UIViewController {
-    @IBOutlet private weak var systemBroadcastPickerView: UIView!
-
+    
     // Add this struct if you don't already have it
     struct DailyParticipant {
         let id: String
         let name: String
     }
-
-    // Add these methods inside the class
-    @objc private func buttonTouchDown() {
-        UIView.animate(withDuration: 0.1) {
-            self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
-            self.leaveRoomButton.alpha = 0.9
-        }
-    }
-
-    @objc private func buttonTouchUp() {
-        UIView.animate(withDuration: 0.1) {
-            self.leaveRoomButton.transform = .identity
-            self.leaveRoomButton.alpha = 1.0
-        }
-    }
     
-//    App Black RGB 9, 30, 66, 1
-//    App Background Grey 244, 245, 247, 0.08
+    let hRed: CGFloat = 244.0 / 255.0   // Red component (0 to 1)
+    let hGreen: CGFloat = 245.0 / 255.0 // Green component (0 to 1)
+    let hBlue: CGFloat = 247.0 / 255.0   // Blue component (0 to 1)
+    let hAlpha: CGFloat = 1.0           // Alpha component (0 to 1)
+    
+    
+    let cRed: CGFloat = 9.0 / 255.0   // Red component (0 to 1)
+    let cGreen: CGFloat = 30.0 / 255.0 // Green component (0 to 1)
+    let cBlue: CGFloat = 66.0 / 255.0   // Blue component (0 to 1)
+    let cAlpha: CGFloat = 1.0          // Alpha component (0 to 1)
+
+
+    private var systemBroadcastPickerView: RPSystemBroadcastPickerView!
+    private var isScreenSharing: Bool = false
+    private var screenTrack: VideoTrack?
     
     let callClient: CallClient = .init()
     // The local participant video view.
@@ -59,6 +56,8 @@ class DailyCallViewController: UIViewController {
     private let isTestMode: Bool
     private let maxTime: TimeInterval
     private var currentTime: TimeInterval = 1
+    private var recordingStartTime: TimeInterval?
+    private var currentRecordingId: String?
     var timer:Timer?
     
     // UI elements
@@ -84,9 +83,15 @@ class DailyCallViewController: UIViewController {
     var onRecordingStarted: ((String, TimeInterval) -> Void)?
     var onRecordingStopped: ((String, TimeInterval) -> Void)?
     var onRecordingError: ((String) -> Void)?
-    private var recordingStartTime: TimeInterval?
-    private var currentRecordingId: String?
-    // var onDismiss: (() -> Void)?
+    
+    // Create client settings with explicit type annotations
+    let clientSettings = ClientSettingsUpdate(
+        inputs: .set(InputSettingsUpdate(
+            camera: .set(.init(isEnabled: .set(true), settings: .set(.init(facingMode: .set(.user))))),
+            microphone: .set(.init(isEnabled: .set(true))),
+            screenVideo: .set(.init(isEnabled: .set(true)))
+        ))
+    )
 
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
@@ -100,130 +105,20 @@ class DailyCallViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
     
-    let hRed: CGFloat = 244.0 / 255.0   // Red component (0 to 1)
-    let hGreen: CGFloat = 245.0 / 255.0 // Green component (0 to 1)
-    let hBlue: CGFloat = 247.0 / 255.0   // Blue component (0 to 1)
-    let hAlpha: CGFloat = 1.0           // Alpha component (0 to 1)
-    
-    
-    let cRed: CGFloat = 9.0 / 255.0   // Red component (0 to 1)
-    let cGreen: CGFloat = 30.0 / 255.0 // Green component (0 to 1)
-    let cBlue: CGFloat = 66.0 / 255.0   // Blue component (0 to 1)
-    let cAlpha: CGFloat = 1.0          // Alpha component (0 to 1)
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    func leave() {
-        DispatchQueue.main.async {
-            self.dismiss(animated: true) {
-                self.onDismiss?()
-            }
-        }
-        
-        self.left();
-    }
-    
-    func joined() {
-        DispatchQueue.main.async {
-            self.onJoined?()
-        }
-    }
-    
-    func left() {
-        DispatchQueue.main.async {
-            self.onLeft?()
-        }
-    }
-    
-    // In your existing call state handling method (where you handle call state changes)
-    private func handleCallStateChange(_ state: CallState) {
-        onCallStateChange?(state)
-    }
-    
-    // In your network quality monitoring method
-    private func handleNetworkQualityChange(_ quality: String) {
-        onNetworkQualityChange?(quality)
-    }
-    
-    // In your participant joined handler
-    private func handleParticipantJoined(_ participant: Participant) {
-        print("Participant \(participant) joined. handleParticipantJoined")
-        let participantString = "\(participant)"
-        onParticipantJoined?(participantString)
-    }
-    
-    // In your dismiss/close method
-    override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
-        onDismiss?()
-        super.dismiss(animated: flag, completion: completion)
-    }
-
-   // Update the return type to be non-optional
-    func getCallStatus() -> CallState {
-        return self.callClient.callState
-    }
-    
-    func startTimer() {
-        // let message = "\(self.coachName) will be joining us shortly."
-        // self.showAlert(message: message)
-        timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateTime), userInfo: nil, repeats: true)
-    }
-    
-    @objc func updateTime() {
-        currentTime += 1
-
-        // Calculate remaining time
-        let remainingTime = maxTime - currentTime
-
-        // Check if exactly 1 minute remains
-        if remainingTime == 60 {
-            DispatchQueue.main.async {
-                self.showTimeWarningAlert()
-            }
-        }
-
-        // Check if current time exceeds max time
-        if currentTime > maxTime {
-            timer?.invalidate()
-            timer = nil
-            // Optionally handle the case when the timer exceeds max time
-        } else {
-            timerLabel.text = "\(formatTime(currentTime)) / \(formatTime(maxTime))"
-        }
-    }
-        
-    func formatTime(_ time: TimeInterval) -> String {
-        _ = Int(time) / 3600
-        let minutes = (Int(time) % 3600) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d",  minutes, seconds)
-    }
-    
     override func viewDidLoad() {
         super.viewDidLoad()
-        
         view.backgroundColor = .systemBackground
         self.modalPresentationStyle = .fullScreen
         self.isModalInPresentation = true;
-        // Setup CallClient delegate
-        self.callClient.delegate = self
-
-            // Safely handle the broadcast picker view
-        if let broadcastPickerView = self.systemBroadcastPickerView as? RPSystemBroadcastPickerView {
-            broadcastPickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
-            broadcastPickerView.showsMicrophoneButton = false
-        } else {
-            // Create a new broadcast picker view if the outlet is not connected
-            let pickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-            pickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
-            pickerView.showsMicrophoneButton = false
-            self.systemBroadcastPickerView = pickerView
-        }
-        
         // Create buttons
         createButtons()
+        self.callClient.delegate = self
+        setupBroadcastPicker()
         
         // Create stack view
         createStackView()
@@ -257,16 +152,15 @@ class DailyCallViewController: UIViewController {
             overlayView.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
             overlayView.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
             overlayView.widthAnchor.constraint(equalTo: self.view.widthAnchor, multiplier: 0.8),
-            overlayView.heightAnchor.constraint(equalTo: self.view.heightAnchor, multiplier: 0.2)
-        ])
-
-        // Set constraints for the message label
-        NSLayoutConstraint.activate([
+            overlayView.heightAnchor.constraint(equalTo: self.view.heightAnchor, multiplier: 0.2),
+            
             messageLabel.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 10),
             messageLabel.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -10),
             messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 10),
             messageLabel.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor, constant: -10)
         ])
+
+       
         
         if (self.isTestMode) {
             // Add tap gesture recognizer to overlay view
@@ -279,21 +173,14 @@ class DailyCallViewController: UIViewController {
             return
         }
         
-        self.callClient.join(url: roomURL, token: token, settings: ClientSettingsUpdate() ) { result in
+        guard let roomURLPublic = URL(string:"https://smartwinnr.daily.co/chatroom") else { return };
+        
+        self.callClient.join(url: roomURL, token: token, settings: clientSettings) { result in
             switch result {
             case .success(_):
-                print("Joined call")
                 self.callClient.set(username: self.userName) { result in
                     switch result {
                     case .success(_):
-                        // Handle successful join
-                        self.callClient.updateInputs(.set(
-                            camera: .set(
-                                settings: .set(facingMode: .set(.user)
-                                )
-                            )
-                        ), completion: nil)
-
 
                         if (self.isTestMode) {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -328,6 +215,136 @@ class DailyCallViewController: UIViewController {
         self.participantsStack.addArrangedSubview(self.localVideoView)
         
     }
+    
+    
+    // Add these methods inside the class
+    @objc private func buttonTouchDown() {
+        UIView.animate(withDuration: 0.1) {
+            self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            self.leaveRoomButton.alpha = 0.9
+        }
+    }
+
+    @objc private func buttonTouchUp() {
+        UIView.animate(withDuration: 0.1) {
+            self.leaveRoomButton.transform = .identity
+            self.leaveRoomButton.alpha = 1.0
+        }
+    }
+    
+    func leave() {
+        DispatchQueue.main.async {
+            self.dismiss(animated: true) {
+                self.onDismiss?()
+            }
+        }
+        self.left();
+    }
+    
+    func joined() {
+        DispatchQueue.main.async {
+            self.onJoined?()
+        }
+    }
+    
+    func left() {
+        DispatchQueue.main.async {
+            self.onLeft?()
+        }
+    }
+    
+    // In your existing call state handling method (where you handle call state changes)
+    private func handleCallStateChange(_ state: CallState) {
+        onCallStateChange?(state)
+    }
+    
+    // In your network quality monitoring method
+    private func handleNetworkQualityChange(_ quality: String) {
+        onNetworkQualityChange?(quality)
+    }
+    
+    // In your participant joined handler
+    private func handleParticipantJoined(_ participant: Participant) {
+        let participantString = "\(participant)"
+        onParticipantJoined?(participantString)
+    }
+    
+    // In your dismiss/close method
+    override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        onDismiss?()
+        super.dismiss(animated: flag, completion: completion)
+    }
+
+   // Update the return type to be non-optional
+    func getCallStatus() -> CallState {
+        return self.callClient.callState
+    }
+    
+    func startTimer() {
+        // let message = "\(self.coachName) will be joining us shortly."
+        // self.showAlert(message: message)
+        timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateTime), userInfo: nil, repeats: true)
+    }
+    
+    @objc func updateTime() {
+        currentTime += 1
+        // Calculate remaining time
+        let remainingTime = maxTime - currentTime
+        // Check if exactly 1 minute remains
+        if remainingTime == 60 {
+            DispatchQueue.main.async {
+                self.showTimeWarningAlert()
+            }
+        }
+        // Check if current time exceeds max time
+        if currentTime > maxTime {
+            timer?.invalidate()
+            timer = nil
+            // Optionally handle the case when the timer exceeds max time
+        } else {
+            timerLabel.text = "\(formatTime(currentTime)) / \(formatTime(maxTime))"
+        }
+    }
+        
+    func formatTime(_ time: TimeInterval) -> String {
+        _ = Int(time) / 3600
+        let minutes = (Int(time) % 3600) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%02d:%02d",  minutes, seconds)
+    }
+
+    func setupBroadcastPicker() {
+        systemBroadcastPickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        systemBroadcastPickerView.translatesAutoresizingMaskIntoConstraints = false
+        systemBroadcastPickerView.preferredExtension = "com.quizprompt.app.CaptureExtension"
+        
+        // Create a custom button to trigger the broadcast picker
+        let screenShareButton = UIButton(type: .system)
+        screenShareButton.translatesAutoresizingMaskIntoConstraints = false
+        screenShareButton.setImage(UIImage(systemName: "rectangle.on.rectangle"), for: .normal)
+        screenShareButton.tintColor = .white
+        screenShareButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        screenShareButton.layer.cornerRadius = 20
+        screenShareButton.addTarget(self, action: #selector(didTapScreenShare), for: .touchUpInside)
+        
+        self.localVideoView.addSubview(screenShareButton)
+        self.localVideoView.addSubview(systemBroadcastPickerView)
+        
+        NSLayoutConstraint.activate([
+            // Position screen share button after camera button
+            screenShareButton.leadingAnchor.constraint(equalTo: cameraInputButton.trailingAnchor, constant: 8),
+            screenShareButton.bottomAnchor.constraint(equalTo: localVideoView.bottomAnchor, constant: -16),
+            screenShareButton.widthAnchor.constraint(equalToConstant: 40),
+            screenShareButton.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Keep broadcast picker centered on the screen share button
+            systemBroadcastPickerView.centerXAnchor.constraint(equalTo: screenShareButton.centerXAnchor),
+            systemBroadcastPickerView.centerYAnchor.constraint(equalTo: screenShareButton.centerYAnchor),
+            systemBroadcastPickerView.widthAnchor.constraint(equalToConstant: 44),
+            systemBroadcastPickerView.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
 
     @objc func copyTextToClipboard() {
         let message = "\(self.roomURLString)?t=\(self.token)";
@@ -363,12 +380,7 @@ class DailyCallViewController: UIViewController {
     
     func createButtons() {
 
-        // Replace the existing broadcast picker creation with:
-//        if let picker = DailyBroadcastHelper.shared.setupBroadcastPickerView() {
-//            broadcastPickerView = picker
-//            broadcastPickerView.translatesAutoresizingMaskIntoConstraints = false
-//            self.localVideoView.addSubview(broadcastPickerView)
-//        }
+        let controlButtonConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
 
         // Create bottom container view
         bottomView = UIView()
@@ -420,8 +432,6 @@ class DailyCallViewController: UIViewController {
         leaveRoomButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
         leaveRoomButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
 
-       
-        let controlButtonConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         
         microphoneInputButton = UIButton(type: .system)
         microphoneInputButton.translatesAutoresizingMaskIntoConstraints = false
@@ -568,11 +578,16 @@ class DailyCallViewController: UIViewController {
             leaveRoomButton.centerXAnchor.constraint(equalTo: bottomView.centerXAnchor),
             leaveRoomButton.topAnchor.constraint(equalTo: bottomView.topAnchor, constant: 16),
             leaveRoomButton.widthAnchor.constraint(equalTo: bottomView.widthAnchor, multiplier: 0.6),
-            leaveRoomButton.heightAnchor.constraint(equalToConstant: 50),
+            leaveRoomButton.heightAnchor.constraint(equalToConstant: 50)
             
         ])
         
     }
+
+    @objc func didTapScreenShare() {
+          self.startScreenShare()
+    }
+
     
     @objc func didTapLeaveRoom() {
         // Add visual feedback
@@ -715,11 +730,8 @@ class DailyCallViewController: UIViewController {
             overlayView.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
             overlayView.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
             overlayView.widthAnchor.constraint(equalTo: self.view.widthAnchor, multiplier: 0.85),
-            overlayView.heightAnchor.constraint(lessThanOrEqualTo: self.view.heightAnchor, multiplier: 0.25)
-        ])
-
-        // Set constraints for the message label with better padding
-        NSLayoutConstraint.activate([
+            overlayView.heightAnchor.constraint(lessThanOrEqualTo: self.view.heightAnchor, multiplier: 0.25),
+            
             messageLabel.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 24),
             messageLabel.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -24),
             messageLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 24),
@@ -808,40 +820,33 @@ class DailyCallViewController: UIViewController {
         }
     }
 
+    func startScreenShare() {
+        self.callClient.startScreenShare() { result in
+            switch result {
+            case .success(_):
+                print("Screen share started", result)
+            case .failure(let error):  
+                print("Failed to start screen share: \(error)")
+            }
+        }
+    }
+    
+    
+    
+
             
 }
 
 extension DailyCallViewController: CallClientDelegate {
 
-     func callClientDidDetectStartOfSystemBroadcast(
-        _ callClient: CallClient
-    ) {
-        print("System broadcast started")
-        
 
-        callClient.updateInputs(
-            .set(screenVideo: .set(isEnabled: .set(true))),
-            completion: nil
-        )
-    }
-
-    public func callClientDidDetectEndOfSystemBroadcast(
-        _ callClient: CallClient
-    ) {
-        print("System broadcast ended")
-
-        callClient.updateInputs(
-            .set(screenVideo: .set(isEnabled: .set(false))),
-            completion: nil
-        )
-    }
-    
     func callClient(_ callClient: CallClient, inputsUpdated inputs: InputSettings) {
+        print("inputsUpdated: \(inputs)")
         updateControls()
     }
-            
+
     func callClient(_ callClient: CallClient, participantJoined participant: Participant) {
-        print("Participant \(participant.id) joined the call. participantJoined")
+        // print("Participant \(participant.id) joined the call. participantJoined")
         // Create a new view for this participant's video track.
         let videoView = VideoView()
         videoView.videoScaleMode = .fit
@@ -911,7 +916,7 @@ extension DailyCallViewController: CallClientDelegate {
     
     // Handle a participant updating (e.g., their tracks changing)
     func callClient(_ callClient: CallClient, participantUpdated participant: Participant) {
-        print("Participant \(participant) updated. participantUpdated")
+        // print("Participant \(participant) updated. participantUpdated")
         // Convert the participant object to a string representation
         
         // Pass the string representation to the handleParticipantJoined method
@@ -920,7 +925,7 @@ extension DailyCallViewController: CallClientDelegate {
         // Determine whether the video track is for a screen or camera.
         let cameraTrack = participant.media?.camera.track
         let screenTrack = participant.media?.screenVideo.track
-        let videoTrack = cameraTrack ?? screenTrack
+        let videoTrack = cameraTrack
 
         if participant.info.isLocal {
             // Update the track for the local participant's video view.
@@ -957,6 +962,22 @@ extension DailyCallViewController: CallClientDelegate {
                 }
             }
             
+        } else if (screenTrack != nil) {
+
+            let videoView = VideoView()
+            videoView.translatesAutoresizingMaskIntoConstraints = false
+            videoView.track = screenTrack
+            videoView.layer.cornerRadius = 12
+            videoView.clipsToBounds = true
+            videoView.layer.borderWidth = 2
+            videoView.layer.borderColor = UIColor.systemGray5.cgColor
+            videoView.layer.shadowColor = UIColor.black.cgColor
+            videoView.layer.shadowOffset = CGSize(width: 0, height: 2)
+            videoView.layer.shadowRadius = 4
+            videoView.layer.shadowOpacity = 0.2
+//            videoViews["ParticipantsStack_\(participant.id)"] = videoView
+            participantsStack.addArrangedSubview(videoView)
+
         } else {
             // Update the track for a remote participant's video view.
             self.videoViews[participant.id]?.track = videoTrack
