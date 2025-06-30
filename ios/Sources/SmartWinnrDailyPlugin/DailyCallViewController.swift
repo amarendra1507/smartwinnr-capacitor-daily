@@ -84,10 +84,12 @@ class DailyCallViewController: UIViewController {
     var onRecordingStarted: ((String, TimeInterval) -> Void)?
     var onRecordingStopped: ((String, TimeInterval) -> Void)?
     var onRecordingError: ((String) -> Void)?
+    var onParticipantCountChanged: ((Int) -> Void)?
     private var recordingStartTime: TimeInterval?
     private var currentRecordingId: String?
     // var onDismiss: (() -> Void)?
-
+    private var recordingStarted: Bool = false;
+    private var disconnectionAlert: UIAlertController?
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
@@ -876,6 +878,7 @@ extension DailyCallViewController: CallClientDelegate {
                 print("Recording Started")
                 self.recordingStartTime = Date().timeIntervalSince1970
                 self.currentRecordingId = "\(recordingInfo)"
+                self.recordingStarted = true;
                 
                 // Trigger recording started callback
                 if let recordingId = self.currentRecordingId,
@@ -911,7 +914,7 @@ extension DailyCallViewController: CallClientDelegate {
     
     // Handle a participant updating (e.g., their tracks changing)
     func callClient(_ callClient: CallClient, participantUpdated participant: Participant) {
-        print("Participant \(participant) updated. participantUpdated")
+        print("Participant \(participant.id) updated. participantUpdated")
         // Convert the participant object to a string representation
         
         // Pass the string representation to the handleParticipantJoined method
@@ -958,14 +961,60 @@ extension DailyCallViewController: CallClientDelegate {
             }
             
         } else {
-            // Update the track for a remote participant's video view.
-            self.videoViews[participant.id]?.track = videoTrack
+            // Remove existing video views for remote participants only
+            for (id, existingView) in self.videoViews {
+                if !participant.info.isLocal {
+                    existingView.removeFromSuperview()
+                    self.videoViews.removeValue(forKey: id)
+                }
+            }
+            
+            // Create and configure new video view
+            let videoView = VideoView()
+            videoView.translatesAutoresizingMaskIntoConstraints = false
+            videoView.videoScaleMode = .fit
+            videoView.backgroundColor = .black
+            videoView.track = videoTrack
+            videoView.layer.cornerRadius = 10
+            videoView.layer.masksToBounds = true
+            
+            // Add name label for remote participant
+            let nameLabel = UILabel()
+            nameLabel.text = participant.info.username ?? "Remote User"
+            nameLabel.textAlignment = .center
+            nameLabel.textColor = .white
+            nameLabel.translatesAutoresizingMaskIntoConstraints = false
+            nameLabel.layer.cornerRadius = 10
+            nameLabel.layer.masksToBounds = true
+            
+            videoView.addSubview(nameLabel)
+            
+            // Set up constraints for nameLabel with margin
+            let margin: CGFloat = 8.0
+            NSLayoutConstraint.activate([
+                nameLabel.trailingAnchor.constraint(equalTo: videoView.trailingAnchor, constant: -margin),
+                nameLabel.bottomAnchor.constraint(equalTo: videoView.bottomAnchor, constant: -margin),
+                nameLabel.widthAnchor.constraint(lessThanOrEqualTo: videoView.widthAnchor, multiplier: 0.5),
+                nameLabel.heightAnchor.constraint(equalToConstant: 30)
+            ])
+            
+            // Add to dictionary and stack view with new participant ID
+            self.videoViews[participant.id] = videoView
+            self.participantsStack.addArrangedSubview(videoView)
+
+            // Dismiss any existing disconnection alert
+            if let alert = self.disconnectionAlert {
+                alert.dismiss(animated: true)
+                self.disconnectionAlert = nil
+            }
+
+            
+            
             if (self.isTestMode) {
                 DispatchQueue.main.async {
                     self.removeOverlayView()
                 }
             }
-
         }
     }
 
@@ -979,6 +1028,45 @@ extension DailyCallViewController: CallClientDelegate {
         handleNetworkQualityChange(quality)
     }
 
+    func callClient(
+        _ callClient: CallClient,
+        participantCountsUpdated participantCounts: ParticipantCounts
+    ) {
+        if (participantCounts.present < 2 && self.recordingStarted == true) {
+            self.onParticipantCountChanged?(participantCounts.present)
+        }
+    }
+
+    func callClient(
+        _ callClient: CallClient,
+        participantLeft participant: Participant,
+        withReason reason: ParticipantLeftReason
+    ) {
+        print("Participant \(participant.id) left the call. participantLeft with reason: \(reason)")
+        if (participant.info.isLocal) {
+            
+        } else {
+            // Remove existing video views for remote participants only
+            let participantName = participant.info.username ?? "AI"
+            DispatchQueue.main.async {
+                let alert = UIAlertController(
+                    title: "Participant Disconnected",
+                    message: "\(participantName) has left due to network issues. Please wait while they rejoin.",
+                    preferredStyle: .alert
+                )
+                self.present(alert, animated: true)
+                
+                // Store alert reference to dismiss it later when participant rejoins
+                self.disconnectionAlert = alert
+            }
+            for (id, existingView) in self.videoViews {
+                if !participant.info.isLocal {
+                    existingView.removeFromSuperview()
+                    self.videoViews.removeValue(forKey: id)
+                }
+            }
+        }
+    }
     
 }
 

@@ -11,7 +11,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", branch: "main"),
-        .package(url: "https://github.com/daily-co/daily-ios-client.git", from: "0.28.0") // Replace with the correct version
+        .package(url: "https://github.com/daily-co/daily-ios-client.git", from: "0.31.0") // Replace with the correct version
     ],
     targets: [
         .target(

@@ -33,6 +33,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         ])
     }
 
+
     @objc func joinCall(_ call: CAPPluginCall) {
         guard let urlString = call.getString("url"), let url = URL(string: urlString) else {
             call.reject("Invalid URL")
@@ -147,7 +148,12 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 ])
 
             }
-            
+
+            viewController.onParticipantCountChanged = { [weak self] participantCount in
+                self?.notifyListeners("participantCountChanged", data: [
+                    "participantCount": participantCount
+                ])
+            }
             
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootViewController = windowScene.windows.first?.rootViewController {
