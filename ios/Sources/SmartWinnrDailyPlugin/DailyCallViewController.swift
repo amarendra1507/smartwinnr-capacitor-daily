@@ -92,7 +92,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     // MARK: - UI Components to match the design (New UI Elements)
     private lazy var newContentContainerView = UIView()
     private lazy var newCoachingTitleLabel = UILabel()
-    private lazy var newLanguageLabel = UILabel()
+
     private lazy var newTimerLabel = UILabel()
     private lazy var newMainStackView = UIStackView()
     private lazy var newLocalVideoContainer = UIView()
@@ -178,7 +178,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         
         setupNewContentContainer()
         setupNewCoachingTitle()
-        setupNewLanguageLabel()
+
         setupNewTimerLabel()
         setupVideoViews()
         setupParticipantLabels()
@@ -205,15 +205,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         newContentContainerView.addSubview(newCoachingTitleLabel)
     }
     
-    private func setupNewLanguageLabel() {
-        newLanguageLabel.text = "English"
-        newLanguageLabel.textAlignment = .center
-        newLanguageLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        newLanguageLabel.textColor = .secondaryLabel
-        newLanguageLabel.backgroundColor = .clear
-        newLanguageLabel.translatesAutoresizingMaskIntoConstraints = false
-        newContentContainerView.addSubview(newLanguageLabel)
-    }
+
     
     private func setupNewTimerLabel() {
         newTimerLabel.text = "00:00 / 05:00"
@@ -273,7 +265,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         // Setup main stack view with responsive layout
         newMainStackView.axis = isIPad ? .horizontal : .vertical
         newMainStackView.distribution = .fillEqually
-        newMainStackView.spacing = isIPad ? 16 : 20
+        newMainStackView.spacing = isIPad ? 20 : 30
         newMainStackView.translatesAutoresizingMaskIntoConstraints = false
         
         newMainStackView.addArrangedSubview(newLocalVideoContainer)
@@ -282,19 +274,19 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     }
     
         private func setupParticipantLabels() {
-        // Local participant label - below container like reference design
+        // Local participant label - bold and right-aligned, closer to video
         newLocalParticipantLabel.text = "Beverley Flow Admin"
-        newLocalParticipantLabel.textAlignment = .center
-        newLocalParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        newLocalParticipantLabel.textAlignment = .right
+        newLocalParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
         newLocalParticipantLabel.textColor = .label
         newLocalParticipantLabel.backgroundColor = .clear
         newLocalParticipantLabel.translatesAutoresizingMaskIntoConstraints = false
         newContentContainerView.addSubview(newLocalParticipantLabel)
         
-        // Remote participant label - below container like reference design
+        // Remote participant label - bold and right-aligned, closer to video
         newRemoteParticipantLabel.text = "Dr. Alice"
-        newRemoteParticipantLabel.textAlignment = .center
-        newRemoteParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        newRemoteParticipantLabel.textAlignment = .right
+        newRemoteParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
         newRemoteParticipantLabel.textColor = .label
         newRemoteParticipantLabel.backgroundColor = .clear
         newRemoteParticipantLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -340,10 +332,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     
     private func setupNewConstraints() {
         NSLayoutConstraint.activate([
-            // Container view - centered in the main view
-            newContentContainerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            // Container view - anchored to safe area with proper spacing
+            newContentContainerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             newContentContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             newContentContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            newContentContainerView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
             
             // Coaching title at the top of container
             newCoachingTitleLabel.topAnchor.constraint(equalTo: newContentContainerView.topAnchor),
@@ -351,19 +344,14 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             newCoachingTitleLabel.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor),
             newCoachingTitleLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
             
-            // Language label below coaching title
-            newLanguageLabel.topAnchor.constraint(equalTo: newCoachingTitleLabel.bottomAnchor, constant: 4),
-            newLanguageLabel.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
-            newLanguageLabel.heightAnchor.constraint(equalToConstant: 20),
-            
-            // Timer label below language label
-            newTimerLabel.topAnchor.constraint(equalTo: newLanguageLabel.bottomAnchor, constant: 16),
+            // Timer label below coaching title
+            newTimerLabel.topAnchor.constraint(equalTo: newCoachingTitleLabel.bottomAnchor, constant: 16),
             newTimerLabel.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
             newTimerLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 250),
             newTimerLabel.heightAnchor.constraint(equalToConstant: 40),
             
             // Main stack view below timer
-            newMainStackView.topAnchor.constraint(equalTo: newTimerLabel.bottomAnchor, constant: 30),
+            newMainStackView.topAnchor.constraint(equalTo: newTimerLabel.bottomAnchor, constant: 20),
             newMainStackView.leadingAnchor.constraint(equalTo: newContentContainerView.leadingAnchor, constant: 10),
             newMainStackView.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor, constant: -10),
             
@@ -374,19 +362,19 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             // Participant labels - positioned differently for iPad vs iPhone
         ])
         
-        // Participant labels positioned as overlays at bottom of each container
+        // Participant labels positioned below each video container, right-aligned and closer
         NSLayoutConstraint.activate([
-            // Local participant label overlay
-            newLocalParticipantLabel.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor, constant: 12),
-            newLocalParticipantLabel.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor, constant: -12),
-            newLocalParticipantLabel.bottomAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: -12),
-            newLocalParticipantLabel.heightAnchor.constraint(equalToConstant: 32),
+            // Local participant label below video container, closer and right-aligned
+            newLocalParticipantLabel.topAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: 4),
+            newLocalParticipantLabel.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor),
+            newLocalParticipantLabel.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor),
+            newLocalParticipantLabel.heightAnchor.constraint(equalToConstant: 20),
             
-            // Remote participant label overlay
-            newRemoteParticipantLabel.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 12),
-            newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor, constant: -12),
-            newRemoteParticipantLabel.bottomAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: -12),
-            newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 32),
+            // Remote participant label below video container, closer and right-aligned
+            newRemoteParticipantLabel.topAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: 4),
+            newRemoteParticipantLabel.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor),
+            newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor),
+            newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
         
         // Common constraints for both layouts
@@ -420,8 +408,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             newMicButton.widthAnchor.constraint(equalToConstant: 32),
             newMicButton.heightAnchor.constraint(equalToConstant: 32),
             
-            // End role play button - at bottom of container  
-            newEndRolePlayButton.topAnchor.constraint(greaterThanOrEqualTo: newMainStackView.bottomAnchor, constant: 30),
+            // End role play button - at bottom of container, accounting for participant labels
+            newEndRolePlayButton.topAnchor.constraint(greaterThanOrEqualTo: newRemoteParticipantLabel.bottomAnchor, constant: 20),
             newEndRolePlayButton.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
             newEndRolePlayButton.widthAnchor.constraint(equalToConstant: 200),
             newEndRolePlayButton.heightAnchor.constraint(equalToConstant: 50),
@@ -430,8 +418,57 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     }
     
     @objc private func endRolePlayTapped() {
-        // Handle ending role play
-        leave()
+        // Add visual feedback
+        UIView.animate(withDuration: 0.1, animations: {
+            self.newEndRolePlayButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                let identityTransform = CGAffineTransform.identity
+                self.newEndRolePlayButton.transform = identityTransform
+            }
+        }
+
+        // Disable button to prevent multiple taps
+        self.newEndRolePlayButton.isEnabled = false
+        
+        // Cleanup turn system and audio detection
+        self.cleanupTurnSystem()
+        
+        // Stop recording if it's running
+        self.callClient.stopRecording { result in
+            
+            // Re-enable button in case of failure
+            DispatchQueue.main.async {
+                self.newEndRolePlayButton.isEnabled = true
+            }
+            
+            switch result {
+            case .success(_):
+                print("Recording stopped successfully")
+                if let recordingId = self.currentRecordingId {
+                    let stopTime = Date().timeIntervalSince1970
+                    self.onRecordingStopped?(recordingId, stopTime)
+                }
+                
+                // Remove local participant and leave call
+                let participants = self.callClient.participants
+                let localParticipant = participants.local
+                self.removeParticipantView(participantId: localParticipant.id)
+                self.callClient.leave() { result in
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.leave()
+                }
+            case .failure(let error):
+                print("Failed to stop recording: \(error.localizedDescription)")
+                self.onRecordingError?(error.localizedDescription)
+                self.callClient.leave() { result in
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.leave()
+                }
+            }
+        }
     }
     
     private func setupCallClient() {
@@ -476,7 +513,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         // Show new UI elements
         newContentContainerView.isHidden = false
         newCoachingTitleLabel.isHidden = false
-        newLanguageLabel.isHidden = false
+
         newTimerLabel.isHidden = false
         newMainStackView.isHidden = false
         newLocalParticipantLabel.isHidden = false
@@ -505,10 +542,51 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             localVideoView.track = track
             newLocalVideoView.track = track
             print("🎥 Attached local video track to both old and new UI")
+            
+            // Initialize speaking indicators for local participant in new UI
+            initializeSpeakingIndicatorsForNewUI(participantId: participantId, videoView: newLocalVideoView)
         } else {
             // For remote participants, attach to new remote video view
             newRemoteVideoView.track = track
             print("🎥 Attached remote video track to new UI for participant: \(participantId)")
+            
+            // Initialize speaking indicators for remote participant in new UI
+            initializeSpeakingIndicatorsForNewUI(participantId: participantId, videoView: newRemoteVideoView)
+        }
+    }
+    
+    private func initializeSpeakingIndicatorsForNewUI(participantId: ParticipantID, videoView: VideoView) {
+        // Only create if not already exists
+        if speakingIndicators[participantId] == nil {
+            let indicator = createSpeakingIndicator(for: participantId)
+            speakingIndicators[participantId] = indicator
+            
+            // Create full video pulse overlay
+            let pulseOverlay = createVideoPulseOverlay(for: participantId)
+            videoPulseOverlays[participantId] = pulseOverlay
+            
+            // Add pulse overlay to cover entire video
+            videoView.addSubview(pulseOverlay)
+            NSLayoutConstraint.activate([
+                pulseOverlay.topAnchor.constraint(equalTo: videoView.topAnchor),
+                pulseOverlay.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+                pulseOverlay.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+                pulseOverlay.bottomAnchor.constraint(equalTo: videoView.bottomAnchor)
+            ])
+            
+            // Add bottom speaking indicator to video container
+            let videoContainer = videoView == newLocalVideoView ? newLocalVideoContainer : newRemoteVideoContainer
+            videoContainer.addSubview(indicator)
+            
+            // Position the indicator at the bottom of the video container
+            NSLayoutConstraint.activate([
+                indicator.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor, constant: 8),
+                indicator.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor, constant: -8),
+                indicator.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor, constant: -8),
+                indicator.heightAnchor.constraint(equalToConstant: 32)
+            ])
+            
+            print("🎨 DEBUG: ✅ Initialized speaking indicators for participant \(participantId) in new UI")
         }
     }
     
@@ -628,34 +706,13 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     // MARK: - Visual Indicators
     
     private func createSpeakingIndicator(for participantId: ParticipantID) -> UIView {
+        // This is now just a placeholder since we'll highlight the container border instead
         let indicator = UIView()
-        indicator.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.2) // Slightly more visible background
-        indicator.layer.borderColor = UIColor.systemGreen.cgColor
-        indicator.layer.borderWidth = 3.0
-        indicator.layer.cornerRadius = 8  // Smaller radius for bottom bar
+        indicator.backgroundColor = UIColor.clear
         indicator.translatesAutoresizingMaskIntoConstraints = false
         indicator.isHidden = true
         
-        // Add a speaking label for better visibility
-        let speakingLabel = UILabel()
-        speakingLabel.text = "🗣️ Speaking"
-        speakingLabel.textAlignment = .center
-        speakingLabel.font = UIFont.boldSystemFont(ofSize: 16)
-        speakingLabel.textColor = UIColor.white
-        speakingLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
-        speakingLabel.layer.cornerRadius = 6
-        speakingLabel.layer.masksToBounds = true
-        speakingLabel.translatesAutoresizingMaskIntoConstraints = false
-        indicator.addSubview(speakingLabel)
-        
-        NSLayoutConstraint.activate([
-            speakingLabel.centerXAnchor.constraint(equalTo: indicator.centerXAnchor),
-            speakingLabel.centerYAnchor.constraint(equalTo: indicator.centerYAnchor),
-            speakingLabel.heightAnchor.constraint(equalToConstant: 30),
-            speakingLabel.widthAnchor.constraint(equalToConstant: 120)
-        ])
-        
-        print("🎨 DEBUG: Created speaking indicator bar for \(participantId)")
+        print("🎨 DEBUG: Created speaking indicator placeholder for \(participantId)")
         return indicator
     }
     
@@ -676,143 +733,59 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     private func updateSpeakingIndicator(for participantId: ParticipantID, isSpeaking: Bool) {
         print("🎨 DEBUG: updateSpeakingIndicator called for \(participantId), isSpeaking: \(isSpeaking)")
         
-        // Check if this is the local participant first
-        let isLocalParticipant = participantId == callClient.participants.local.id
-        let videoView: VideoView?
-        
-                if isLocalParticipant {
-            videoView = localVideoView
-            print("🎨 DEBUG: Using localVideoView for local participant \(participantId)")
-        } else {
-            videoView = videoViews[participantId]
-            print("🎨 DEBUG: Looking for remote video view for \(participantId), found: \(videoView != nil)")
-            print("🎨 DEBUG: Available video views: \(videoViews.keys.map { $0.description })")
-        }
-
-        guard let videoView = videoView else {
-            print("❌ 🎨 DEBUG: No video view found for participant \(participantId) (isLocal: \(isLocalParticipant))")
-            if !isLocalParticipant {
-                print("❌ 🎨 DEBUG: Remote participant video view missing! Available views: \(videoViews.keys.map { $0.description })")
+        // For new UI, highlight the video container border
+        if isNewUIInitialized {
+            let isLocalParticipant = participantId == callClient.participants.local.id
+            let videoContainer = isLocalParticipant ? newLocalVideoContainer : newRemoteVideoContainer
+            
+            if isSpeaking {
+                // Highlight container border with green glow
+                videoContainer.layer.borderColor = UIColor.systemGreen.cgColor
+                videoContainer.layer.borderWidth = 4.0
+                videoContainer.layer.shadowColor = UIColor.systemGreen.cgColor
+                videoContainer.layer.shadowRadius = 12.0
+                videoContainer.layer.shadowOpacity = 0.8
+                videoContainer.layer.shadowOffset = CGSize.zero
+                
+                // Add pulsing animation
+                let pulseAnimation = CABasicAnimation(keyPath: "shadowOpacity")
+                pulseAnimation.duration = 1.0
+                pulseAnimation.fromValue = 0.4
+                pulseAnimation.toValue = 0.8
+                pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                pulseAnimation.autoreverses = true
+                pulseAnimation.repeatCount = .infinity
+                videoContainer.layer.add(pulseAnimation, forKey: "speaking_pulse")
+                
+                print("🎨 DEBUG: ✅ HIGHLIGHTED container for speaking participant \(participantId)")
+            } else {
+                // Remove highlight
+                videoContainer.layer.borderColor = UIColor.systemGray4.cgColor
+                videoContainer.layer.borderWidth = 2.0
+                videoContainer.layer.shadowOpacity = 0.1
+                videoContainer.layer.removeAnimation(forKey: "speaking_pulse")
+                
+                print("🎨 DEBUG: ❌ REMOVED highlight from container for participant \(participantId)")
             }
             return
         }
         
-        if speakingIndicators[participantId] == nil {
-            let indicator = createSpeakingIndicator(for: participantId)
-            speakingIndicators[participantId] = indicator
-            
-            // Create full video pulse overlay
-            let pulseOverlay = createVideoPulseOverlay(for: participantId)
-            videoPulseOverlays[participantId] = pulseOverlay
-            
-            // Add pulse overlay to cover entire video
-            videoView.addSubview(pulseOverlay)
-            NSLayoutConstraint.activate([
-                pulseOverlay.topAnchor.constraint(equalTo: videoView.topAnchor),
-                pulseOverlay.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-                pulseOverlay.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-                pulseOverlay.bottomAnchor.constraint(equalTo: videoView.bottomAnchor)
-            ])
-            
-            // Add indicator to the parent view, not inside the video view
-            if let parentView = videoView.superview {
-                parentView.addSubview(indicator)
-                print("🎨 DEBUG: Created speaking indicator for \(participantId) in parent view")
-                
-                // Position indicator at the bottom of video view, covering full width
-                NSLayoutConstraint.activate([
-                    indicator.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-                    indicator.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-                    indicator.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
-                    indicator.heightAnchor.constraint(equalToConstant: 60) // Fixed height at bottom
-                ])
-            } else {
-                // Fallback: add to video view itself
-                videoView.addSubview(indicator)
-                print("🎨 DEBUG: Created speaking indicator for \(participantId) in video view (fallback)")
-                
-                // Position at bottom of video view
-                NSLayoutConstraint.activate([
-                    indicator.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-                    indicator.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-                    indicator.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
-                    indicator.heightAnchor.constraint(equalToConstant: 60)
-                ])
-            }
-            
-            print("🎨 DEBUG: Added constraints for speaking indicator and pulse overlay on \(participantId)")
+        // Fallback to old UI system
+        let isLocalParticipant = participantId == callClient.participants.local.id
+        let videoView = isLocalParticipant ? localVideoView : videoViews[participantId]
+        
+        guard let videoView = videoView else {
+            print("❌ 🎨 DEBUG: No video view found for participant \(participantId)")
+            return
         }
         
-        // Control both the bottom indicator and full video pulse
-        // Determine which video view to animate based on participant
-        let targetVideoView = getVideoViewForParticipant(participantId)
-        
-        if let indicator = speakingIndicators[participantId],
-           let pulseOverlay = videoPulseOverlays[participantId],
-           let videoView = targetVideoView {
-            
-            print("🎨 DEBUG: Found existing indicator and pulse overlay for \(participantId), setting visible: \(isSpeaking)")
-            
-            if isSpeaking {
-                // Show both bottom indicator and full video pulse
-                indicator.isHidden = false
-                indicator.alpha = 1.0
-                pulseOverlay.isHidden = false
-                pulseOverlay.alpha = 1.0
-                
-                print("🎨 DEBUG: ✅ SHOWING speaking effects for \(participantId)")
-                print("🎨 DEBUG: ✅ Indicator frame: \(indicator.frame), Overlay frame: \(pulseOverlay.frame)")
-                
-                // CONSISTENT ANIMATION TIMING FOR BOTH USER AND AI
-                let animationDuration: Double = 1.5  // Same for both user and AI
-                
-                // Bottom indicator pulsing animation
-                let indicatorPulse = CABasicAnimation(keyPath: "opacity")
-                indicatorPulse.duration = animationDuration
-                indicatorPulse.fromValue = 0.3
-                indicatorPulse.toValue = 1.0
-                indicatorPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                indicatorPulse.autoreverses = true
-                indicatorPulse.repeatCount = .infinity
-                
-                // Full video pulse border animation
-                let overlayPulse = CABasicAnimation(keyPath: "opacity")
-                overlayPulse.duration = animationDuration
-                overlayPulse.fromValue = 0.1
-                overlayPulse.toValue = 0.4  // Subtle overlay so video is still visible
-                overlayPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                overlayPulse.autoreverses = true
-                overlayPulse.repeatCount = .infinity
-                
-                // Border width animation for extra prominence
-                let borderAnimation = CABasicAnimation(keyPath: "borderWidth")
-                borderAnimation.duration = animationDuration
-                borderAnimation.fromValue = 4.0
-                borderAnimation.toValue = 8.0
-                borderAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                borderAnimation.autoreverses = true
-                borderAnimation.repeatCount = .infinity
-                
-                // Apply animations to both elements with identical timing
-                indicator.layer.add(indicatorPulse, forKey: "speaking_pulse")
-                pulseOverlay.layer.add(overlayPulse, forKey: "video_pulse")
-                pulseOverlay.layer.add(borderAnimation, forKey: "border_pulse")
-                
-                print("🎨 DEBUG: ✅ Applied consistent animations with duration: \(animationDuration)")
-                
-            } else {
-                // Hide both elements
-                indicator.isHidden = true
-                indicator.alpha = 0.0
-                pulseOverlay.isHidden = true
-                pulseOverlay.alpha = 0.0
-                
-                // Remove all animations
-                indicator.layer.removeAllAnimations()
-                pulseOverlay.layer.removeAllAnimations()
-                
-                print("🎨 DEBUG: ❌ HIDING speaking effects for \(participantId)")
-            }
+        // Simple old UI fallback - just highlight video border
+        if isSpeaking {
+            videoView.layer.borderColor = UIColor.systemGreen.cgColor
+            videoView.layer.borderWidth = 3.0
+        } else {
+            videoView.layer.borderColor = UIColor.clear.cgColor
+            videoView.layer.borderWidth = 0.0
         }
     }
     
@@ -840,19 +813,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     private func startThinkingAnimation(for participantId: ParticipantID) {
         print("🧠 DEBUG: startThinkingAnimation called for \(participantId)")
         
-        // Check if this is the local participant first
-        let isLocalParticipant = participantId == callClient.participants.local.id
-        let videoView: VideoView?
-        
-        if isLocalParticipant {
-            videoView = localVideoView
-            print("🧠 DEBUG: Using localVideoView for local participant thinking animation \(participantId)")
-        } else {
-            videoView = videoViews[participantId]
-        }
-        
-        guard let videoView = videoView else { 
-            print("🧠 DEBUG: No video view found for thinking animation for participant \(participantId) (isLocal: \(isLocalParticipant))")
+        // Get the correct video view for the current UI mode
+        guard let videoView = getVideoViewForParticipant(participantId) else {
+            print("🧠 DEBUG: No video view found for thinking animation for participant \(participantId)")
             return 
         }
         
@@ -910,17 +873,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     }
     
     private func stopThinkingAnimation(for participantId: ParticipantID) {
-        // Check if this is the local participant first
-        let isLocalParticipant = participantId == callClient.participants.local.id
-        let videoView: VideoView?
-        
-        if isLocalParticipant {
-            videoView = localVideoView
-        } else {
-            videoView = videoViews[participantId]
-        }
-        
-        guard let videoView = videoView else { return }
+        // Get the correct video view for the current UI mode
+        guard let videoView = getVideoViewForParticipant(participantId) else { return }
         
         // Remove thinking overlay
         for subview in videoView.subviews {
