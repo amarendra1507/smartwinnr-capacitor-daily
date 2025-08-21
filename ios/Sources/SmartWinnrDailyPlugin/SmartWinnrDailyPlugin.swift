@@ -35,7 +35,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
 
 
     @objc func joinCall(_ call: CAPPluginCall) {
-        guard let urlString = call.getString("url"), let url = URL(string: urlString) else {
+        guard let urlString = call.getString("url"), let _ = URL(string: urlString) else {
             call.reject("Invalid URL")
             return
         }

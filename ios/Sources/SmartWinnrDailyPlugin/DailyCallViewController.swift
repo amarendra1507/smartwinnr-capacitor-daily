@@ -10,31 +10,1225 @@ import UIKit
 import Daily
 import DailySystemBroadcast
 import ReplayKit
+import AVFoundation
 
+// Audio analyzer delegate protocol
+protocol AudioAnalyzerDelegate: AnyObject {
+    func audioAnalyzer(_ analyzer: AudioAnalyzer, detectedSpeaking: Bool, for participantId: String)
+}
 
-class DailyCallViewController: UIViewController {
+// Audio analyzer class for detecting speech
+class AudioAnalyzer {
+    private var audioEngine: AVAudioEngine
+    private var inputNode: AVAudioInputNode
+    private var analyzer: AVAudioPCMBuffer?
+    private weak var delegate: AudioAnalyzerDelegate?
+    private let participantId: String
+    private var consecutiveSpeakingFrames = 0
+    private var consecutiveSilentFrames = 0
+    private let speechThreshold: Float
+    
+    init(participantId: String, speechThreshold: Float, delegate: AudioAnalyzerDelegate) {
+        self.participantId = participantId
+        self.speechThreshold = speechThreshold
+        self.delegate = delegate
+        self.audioEngine = AVAudioEngine()
+        self.inputNode = audioEngine.inputNode
+    }
+    
+    func startAnalyzing() {
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            guard let self = self else { return }
+            self.analyzeAudioLevel(buffer: buffer)
+        }
+        
+        do {
+            try audioEngine.start()
+        } catch {
+            print("Failed to start audio engine: \(error)")
+        }
+    }
+    
+    func stopAnalyzing() {
+        audioEngine.stop()
+        inputNode.removeTap(onBus: 0)
+    }
+    
+    private func analyzeAudioLevel(buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        
+        let channelDataValue = channelData.pointee
+        let channelDataValueArray = stride(from: 0, to: Int(buffer.frameLength), by: buffer.stride).map { channelDataValue[$0] }
+        
+        let rms = sqrt(channelDataValueArray.map { $0 * $0 }.reduce(0, +) / Float(channelDataValueArray.count))
+        let avgPower = 20 * log10(rms)
+        
+        let isCurrentlySpeaking = avgPower > speechThreshold
+        
+        if isCurrentlySpeaking {
+            consecutiveSpeakingFrames += 1
+            consecutiveSilentFrames = 0
+        } else {
+            consecutiveSilentFrames += 1
+            consecutiveSpeakingFrames = 0
+        }
+        
+        let isSpeaking = consecutiveSpeakingFrames >= 3 // speakingFramesThreshold
+        let isSilent = consecutiveSilentFrames >= 8 // silentFramesThreshold
+        
+        if isSpeaking || isSilent {
+            DispatchQueue.main.async {
+                self.delegate?.audioAnalyzer(self, detectedSpeaking: isSpeaking, for: self.participantId)
+            }
+        }
+    }
+}
+
+class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     @IBOutlet private weak var systemBroadcastPickerView: UIView!
+    
+    // MARK: - UI Components to match the design (New UI Elements)
+    private lazy var newContentContainerView = UIView()
+    private lazy var newCoachingTitleLabel = UILabel()
+    private lazy var newLanguageLabel = UILabel()
+    private lazy var newTimerLabel = UILabel()
+    private lazy var newMainStackView = UIStackView()
+    private lazy var newLocalVideoContainer = UIView()
+    private lazy var newRemoteVideoContainer = UIView()
+    private lazy var newLocalVideoView = VideoView()
+    private lazy var newRemoteVideoView = VideoView()
+    private lazy var newLocalParticipantLabel = UILabel()
+    private lazy var newRemoteParticipantLabel = UILabel()
+    private lazy var newControlsOverlay = UIView()
+    private lazy var newCameraButton = UIButton()
+    private lazy var newMicButton = UIButton()
+    private lazy var newEndRolePlayButton = UIButton()
+    
+    // Track if new UI is initialized
+    private var isNewUIInitialized = false
+    
+    // Device type detection
+    private var isIPad: Bool {
+        return UIDevice.current.userInterfaceIdiom == .pad
+    }
 
     // Add this struct if you don't already have it
     struct DailyParticipant {
         let id: String
         let name: String
+        var isSpeaking: Bool
+        var isThinking: Bool
+        var isActiveSpeaker: Bool
+        var lastSpokenAt: TimeInterval
+        var turnNumber: Int
+        
+        init(id: String, name: String) {
+            self.id = id
+            self.name = name
+            self.isSpeaking = false
+            self.isThinking = false
+            self.isActiveSpeaker = false
+            self.lastSpokenAt = 0
+            self.turnNumber = 0
+        }
     }
+    
+    // Speaking and animation state tracking
+    private var participantStates: [ParticipantID: DailyParticipant] = [:]
+    private var speakingIndicators: [ParticipantID: UIView] = [:]
+    private var videoPulseOverlays: [ParticipantID: UIView] = [:] // Full video pulse effects
+    private var thinkingAnimations: [ParticipantID: CAAnimation] = [:]
+    private var audioAnalyzers: [String: AudioAnalyzer] = [:] // Keep String for audio analyzers since they use custom IDs
+    
+    // Turn-based conversation tracking
+    private var currentTurn: Int = 0
+    private var isUserTurn: Bool = true
+    private var conversationTurns: [TurnRecord] = []
+    private var aiFirst: Bool = false
+    
+    // Audio detection thresholds
+    private let speechThresholdLocal: Float = 0.15
+    private let speechThresholdRemote: Float = 0.10
+    private let speakingFramesThreshold: Int = 3
+    private let silentFramesThreshold: Int = 8
+    
+    struct TurnRecord {
+        let turn: Int
+        let speaker: String // "user" or "ai"
+        let speakerName: String
+        let action: String // "started" or "stopped"
+        let timestamp: TimeInterval
+        let duration: TimeInterval?
+    }
+
+    // MARK: - UI Setup Methods
+    
+    func initializeNewUI() {
+        guard !isNewUIInitialized else { return }
+        isNewUIInitialized = true
+        
+        setupNewUI()
+        setupCallClient()
+    }
+    
+    private func setupNewUI() {
+        view.backgroundColor = UIColor.systemBackground
+        
+        setupNewContentContainer()
+        setupNewCoachingTitle()
+        setupNewLanguageLabel()
+        setupNewTimerLabel()
+        setupVideoViews()
+        setupParticipantLabels()
+        setupControlsOverlay()
+        setupEndRolePlayButton()
+        setupNewConstraints()
+    }
+    
+    private func setupNewContentContainer() {
+        newContentContainerView.backgroundColor = .clear
+        newContentContainerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(newContentContainerView)
+    }
+    
+    private func setupNewCoachingTitle() {
+        newCoachingTitleLabel.text = self.coachingTitle
+        newCoachingTitleLabel.textAlignment = .center
+        newCoachingTitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        newCoachingTitleLabel.textColor = .label  // Adapts to light/dark mode
+        newCoachingTitleLabel.backgroundColor = .clear  // No background
+        newCoachingTitleLabel.numberOfLines = 2
+        newCoachingTitleLabel.lineBreakMode = .byWordWrapping
+        newCoachingTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        newContentContainerView.addSubview(newCoachingTitleLabel)
+    }
+    
+    private func setupNewLanguageLabel() {
+        newLanguageLabel.text = "English"
+        newLanguageLabel.textAlignment = .center
+        newLanguageLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        newLanguageLabel.textColor = .secondaryLabel
+        newLanguageLabel.backgroundColor = .clear
+        newLanguageLabel.translatesAutoresizingMaskIntoConstraints = false
+        newContentContainerView.addSubview(newLanguageLabel)
+    }
+    
+    private func setupNewTimerLabel() {
+        newTimerLabel.text = "00:00 / 05:00"
+        newTimerLabel.textAlignment = .center
+        newTimerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 16, weight: .medium)
+        newTimerLabel.textColor = .white
+        newTimerLabel.backgroundColor = UIColor.systemBlue
+        newTimerLabel.layer.cornerRadius = 20
+        newTimerLabel.layer.masksToBounds = true
+        newTimerLabel.translatesAutoresizingMaskIntoConstraints = false
+        newContentContainerView.addSubview(newTimerLabel)
+    }
+    
+    private func setupVideoViews() {
+        // Setup local video container with border
+        newLocalVideoContainer.backgroundColor = .clear
+        newLocalVideoContainer.layer.cornerRadius = 20
+        newLocalVideoContainer.layer.borderWidth = 2
+        newLocalVideoContainer.layer.borderColor = UIColor.systemGray5.cgColor
+        newLocalVideoContainer.layer.shadowColor = UIColor.black.cgColor
+        newLocalVideoContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
+        newLocalVideoContainer.layer.shadowRadius = 8
+        newLocalVideoContainer.layer.shadowOpacity = 0.1
+        newLocalVideoContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Setup remote video container with border
+        newRemoteVideoContainer.backgroundColor = .clear
+        newRemoteVideoContainer.layer.cornerRadius = 20
+        newRemoteVideoContainer.layer.borderWidth = 2
+        newRemoteVideoContainer.layer.borderColor = UIColor.systemGray5.cgColor
+        newRemoteVideoContainer.layer.shadowColor = UIColor.black.cgColor
+        newRemoteVideoContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
+        newRemoteVideoContainer.layer.shadowRadius = 8
+        newRemoteVideoContainer.layer.shadowOpacity = 0.1
+        newRemoteVideoContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Setup local video view with consistent sizing
+        newLocalVideoView.backgroundColor = .black
+        newLocalVideoView.layer.cornerRadius = 16
+        newLocalVideoView.layer.masksToBounds = true
+        newLocalVideoView.videoScaleMode = .fill
+        newLocalVideoView.contentMode = .scaleAspectFill
+        newLocalVideoView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Setup remote video view with consistent sizing
+        newRemoteVideoView.backgroundColor = .black
+        newRemoteVideoView.layer.cornerRadius = 16
+        newRemoteVideoView.layer.masksToBounds = true
+        newRemoteVideoView.videoScaleMode = .fill
+        newRemoteVideoView.contentMode = .scaleAspectFill
+        newRemoteVideoView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add video views to their containers
+        newLocalVideoContainer.addSubview(newLocalVideoView)
+        newRemoteVideoContainer.addSubview(newRemoteVideoView)
+        
+        // Setup main stack view with responsive layout
+        newMainStackView.axis = isIPad ? .horizontal : .vertical
+        newMainStackView.distribution = .fillEqually
+        newMainStackView.spacing = isIPad ? 16 : 20
+        newMainStackView.translatesAutoresizingMaskIntoConstraints = false
+        
+        newMainStackView.addArrangedSubview(newLocalVideoContainer)
+        newMainStackView.addArrangedSubview(newRemoteVideoContainer)
+        newContentContainerView.addSubview(newMainStackView)
+    }
+    
+        private func setupParticipantLabels() {
+        // Local participant label - below container like reference design
+        newLocalParticipantLabel.text = "Beverley Flow Admin"
+        newLocalParticipantLabel.textAlignment = .center
+        newLocalParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        newLocalParticipantLabel.textColor = .label
+        newLocalParticipantLabel.backgroundColor = .clear
+        newLocalParticipantLabel.translatesAutoresizingMaskIntoConstraints = false
+        newContentContainerView.addSubview(newLocalParticipantLabel)
+        
+        // Remote participant label - below container like reference design
+        newRemoteParticipantLabel.text = "Dr. Alice"
+        newRemoteParticipantLabel.textAlignment = .center
+        newRemoteParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        newRemoteParticipantLabel.textColor = .label
+        newRemoteParticipantLabel.backgroundColor = .clear
+        newRemoteParticipantLabel.translatesAutoresizingMaskIntoConstraints = false
+        newContentContainerView.addSubview(newRemoteParticipantLabel)
+    }
+    
+    private func setupControlsOverlay() {
+        newControlsOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        newControlsOverlay.layer.cornerRadius = 20
+        newControlsOverlay.layer.masksToBounds = true
+        newControlsOverlay.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Camera button
+        newCameraButton.setImage(UIImage(systemName: "video"), for: .normal)
+        newCameraButton.tintColor = .white
+        newCameraButton.translatesAutoresizingMaskIntoConstraints = false
+        newCameraButton.addTarget(self, action: #selector(didTapToggleCamera), for: .touchUpInside)
+        
+        // Mic button
+        newMicButton.setImage(UIImage(systemName: "mic"), for: .normal)
+        newMicButton.tintColor = .white
+        newMicButton.translatesAutoresizingMaskIntoConstraints = false
+        newMicButton.addTarget(self, action: #selector(didTapToggleMicrophone), for: .touchUpInside)
+        
+        newControlsOverlay.addSubview(newCameraButton)
+        newControlsOverlay.addSubview(newMicButton)
+        newLocalVideoView.addSubview(newControlsOverlay)
+    }
+    
+    private func setupEndRolePlayButton() {
+        newEndRolePlayButton.setTitle("END ROLE PLAY", for: .normal)
+        newEndRolePlayButton.setTitleColor(.white, for: .normal)
+        newEndRolePlayButton.backgroundColor = UIColor.systemOrange
+        newEndRolePlayButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        newEndRolePlayButton.layer.cornerRadius = 25
+        newEndRolePlayButton.layer.masksToBounds = true
+        newEndRolePlayButton.translatesAutoresizingMaskIntoConstraints = false
+        newEndRolePlayButton.addTarget(self, action: #selector(endRolePlayTapped), for: .touchUpInside)
+        newEndRolePlayButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
+        newEndRolePlayButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        newContentContainerView.addSubview(newEndRolePlayButton)
+    }
+    
+    private func setupNewConstraints() {
+        NSLayoutConstraint.activate([
+            // Container view - centered in the main view
+            newContentContainerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            newContentContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            newContentContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            
+            // Coaching title at the top of container
+            newCoachingTitleLabel.topAnchor.constraint(equalTo: newContentContainerView.topAnchor),
+            newCoachingTitleLabel.leadingAnchor.constraint(equalTo: newContentContainerView.leadingAnchor),
+            newCoachingTitleLabel.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor),
+            newCoachingTitleLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
+            
+            // Language label below coaching title
+            newLanguageLabel.topAnchor.constraint(equalTo: newCoachingTitleLabel.bottomAnchor, constant: 4),
+            newLanguageLabel.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
+            newLanguageLabel.heightAnchor.constraint(equalToConstant: 20),
+            
+            // Timer label below language label
+            newTimerLabel.topAnchor.constraint(equalTo: newLanguageLabel.bottomAnchor, constant: 16),
+            newTimerLabel.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
+            newTimerLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 250),
+            newTimerLabel.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Main stack view below timer
+            newMainStackView.topAnchor.constraint(equalTo: newTimerLabel.bottomAnchor, constant: 30),
+            newMainStackView.leadingAnchor.constraint(equalTo: newContentContainerView.leadingAnchor, constant: 10),
+            newMainStackView.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor, constant: -10),
+            
+            // Fixed aspect ratio for video containers to prevent sizing issues
+            newLocalVideoContainer.heightAnchor.constraint(equalTo: newLocalVideoContainer.widthAnchor, multiplier: 0.75),
+            newRemoteVideoContainer.heightAnchor.constraint(equalTo: newRemoteVideoContainer.widthAnchor, multiplier: 0.75),
+            
+            // Participant labels - positioned differently for iPad vs iPhone
+        ])
+        
+        // Participant labels positioned as overlays at bottom of each container
+        NSLayoutConstraint.activate([
+            // Local participant label overlay
+            newLocalParticipantLabel.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor, constant: 12),
+            newLocalParticipantLabel.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor, constant: -12),
+            newLocalParticipantLabel.bottomAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: -12),
+            newLocalParticipantLabel.heightAnchor.constraint(equalToConstant: 32),
+            
+            // Remote participant label overlay
+            newRemoteParticipantLabel.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 12),
+            newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor, constant: -12),
+            newRemoteParticipantLabel.bottomAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: -12),
+            newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 32),
+        ])
+        
+        // Common constraints for both layouts
+        NSLayoutConstraint.activate([
+            // Video views inside their containers
+            newLocalVideoView.topAnchor.constraint(equalTo: newLocalVideoContainer.topAnchor, constant: 4),
+            newLocalVideoView.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor, constant: 4),
+            newLocalVideoView.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor, constant: -4),
+            newLocalVideoView.bottomAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: -4),
+            
+            newRemoteVideoView.topAnchor.constraint(equalTo: newRemoteVideoContainer.topAnchor, constant: 4),
+            newRemoteVideoView.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 4),
+            newRemoteVideoView.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor, constant: -4),
+            newRemoteVideoView.bottomAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: -4),
+            
+            // Controls overlay
+            newControlsOverlay.leadingAnchor.constraint(equalTo: newLocalVideoView.leadingAnchor, constant: 16),
+            newControlsOverlay.bottomAnchor.constraint(equalTo: newLocalVideoView.bottomAnchor, constant: -16),
+            newControlsOverlay.widthAnchor.constraint(equalToConstant: 80),
+            newControlsOverlay.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Camera button
+            newCameraButton.leadingAnchor.constraint(equalTo: newControlsOverlay.leadingAnchor, constant: 8),
+            newCameraButton.centerYAnchor.constraint(equalTo: newControlsOverlay.centerYAnchor),
+            newCameraButton.widthAnchor.constraint(equalToConstant: 32),
+            newCameraButton.heightAnchor.constraint(equalToConstant: 32),
+            
+            // Mic button
+            newMicButton.trailingAnchor.constraint(equalTo: newControlsOverlay.trailingAnchor, constant: -8),
+            newMicButton.centerYAnchor.constraint(equalTo: newControlsOverlay.centerYAnchor),
+            newMicButton.widthAnchor.constraint(equalToConstant: 32),
+            newMicButton.heightAnchor.constraint(equalToConstant: 32),
+            
+            // End role play button - at bottom of container  
+            newEndRolePlayButton.topAnchor.constraint(greaterThanOrEqualTo: newMainStackView.bottomAnchor, constant: 30),
+            newEndRolePlayButton.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
+            newEndRolePlayButton.widthAnchor.constraint(equalToConstant: 200),
+            newEndRolePlayButton.heightAnchor.constraint(equalToConstant: 50),
+            newEndRolePlayButton.bottomAnchor.constraint(equalTo: newContentContainerView.bottomAnchor)
+        ])
+    }
+    
+    @objc private func endRolePlayTapped() {
+        // Handle ending role play
+        leave()
+    }
+    
+    private func setupCallClient() {
+        // Initialize the call client if not already done
+        // This should integrate with your existing Daily.co setup
+        
+        // Set initial timer
+        updateNewTimer(currentTime: currentTime, maxTime: maxTime)
+    }
+    
+    // Method to switch to new UI layout (call this when you want to use the new design)
+    func enableNewUILayout() {
+        initializeNewUI()
+        
+        // Hide specific old UI elements
+        if let participantsStack = self.participantsStack {
+            participantsStack.isHidden = true
+        }
+        if let timerView = self.timerView {
+            timerView.isHidden = true
+        }
+        if let topView = self.topView {
+            topView.isHidden = true
+        }
+        if let overlayView = self.overlayView {
+            overlayView.isHidden = true
+        }
+        
+        // Hide the existing timer label (conflicts with new one)
+        if let existingTimerLabel = self.timerLabel {
+            existingTimerLabel.isHidden = true
+        }
+        
+        // Hide the old End Role Play button and bottom view
+        if let leaveRoomButton = self.leaveRoomButton {
+            leaveRoomButton.isHidden = true
+        }
+        if let bottomView = self.bottomView {
+            bottomView.isHidden = true
+        }
+        
+        // Show new UI elements
+        newContentContainerView.isHidden = false
+        newCoachingTitleLabel.isHidden = false
+        newLanguageLabel.isHidden = false
+        newTimerLabel.isHidden = false
+        newMainStackView.isHidden = false
+        newLocalParticipantLabel.isHidden = false
+        newRemoteParticipantLabel.isHidden = false
+        newEndRolePlayButton.isHidden = false
+        
+        print("🎨 New UI Layout Enabled!")
+    }
+    
+    // Method to update participant names dynamically
+    func updateParticipantNames(localName: String?, remoteName: String?) {
+        if let localName = localName {
+            newLocalParticipantLabel.text = localName
+        }
+        if let remoteName = remoteName {
+            newRemoteParticipantLabel.text = remoteName
+        }
+    }
+    
+    // Method to attach video tracks to the new UI
+    func attachVideoTrack(_ track: VideoTrack, for participantId: ParticipantID, isLocal: Bool) {
+        guard isNewUIInitialized else { return }
+        
+        if isLocal {
+            // Attach to both old and new local video views
+            localVideoView.track = track
+            newLocalVideoView.track = track
+            print("🎥 Attached local video track to both old and new UI")
+        } else {
+            // For remote participants, attach to new remote video view
+            newRemoteVideoView.track = track
+            print("🎥 Attached remote video track to new UI for participant: \(participantId)")
+        }
+    }
+    
+    private func updateNewTimer(currentTime: TimeInterval, maxTime: TimeInterval) {
+        let current = formatNewTime(currentTime)
+        let total = formatNewTime(maxTime)
+        newTimerLabel.text = "\(current) / \(total)"
+    }
+    
+    private func formatNewTime(_ timeInterval: TimeInterval) -> String {
+        let minutes = Int(timeInterval) / 60
+        let seconds = Int(timeInterval) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    // MARK: - Speaking Animation Methods
 
     // Add these methods inside the class
     @objc private func buttonTouchDown() {
         UIView.animate(withDuration: 0.1) {
-            self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
-            self.leaveRoomButton.alpha = 0.9
+            self.newEndRolePlayButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            self.newEndRolePlayButton.alpha = 0.9
         }
     }
 
     @objc private func buttonTouchUp() {
         UIView.animate(withDuration: 0.1) {
-            self.leaveRoomButton.transform = .identity
-            self.leaveRoomButton.alpha = 1.0
+            let identityTransform = CGAffineTransform.identity
+            self.newEndRolePlayButton.transform = identityTransform
+            self.newEndRolePlayButton.alpha = 1.0
         }
     }
+    
+    // MARK: - Speaking State Management
+    
+    private func updateParticipantSpeakingState(participantId: ParticipantID, isSpeaking: Bool, isLocal: Bool) {
+        guard var participant = participantStates[participantId] else { return }
+        
+        let wasSpeaking = participant.isSpeaking
+        participant.isSpeaking = isSpeaking
+        participant.isActiveSpeaker = isSpeaking
+        participantStates[participantId] = participant
+        
+        // CRITICAL: Stop thinking animation immediately when starting to speak
+        if isSpeaking {
+            participant.isThinking = false
+            participantStates[participantId] = participant
+            stopThinkingAnimation(for: participantId)
+        }
+        
+        // Update visual indicators (speaking border)
+        updateSpeakingIndicator(for: participantId, isSpeaking: isSpeaking)
+        
+        if isSpeaking && !wasSpeaking {
+            // Started speaking
+            print("🗣️ DEBUG: \(isLocal ? "User" : "AI") started speaking: \(participantId)")
+            if isLocal {
+                handleUserStartedSpeaking(participantId: participantId)
+            } else {
+                handleAiStartedSpeaking(participantId: participantId)
+            }
+        } else if !isSpeaking && wasSpeaking {
+            // Stopped speaking - add small delay to ensure they're completely done
+            print("🤫 DEBUG: \(isLocal ? "User" : "AI") stopped speaking: \(participantId)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let currentParticipant = self.participantStates[participantId], !currentParticipant.isSpeaking {
+                    if isLocal {
+                        self.handleUserStoppedSpeaking(participantId: participantId)
+                    } else {
+                        self.handleAiStoppedSpeaking(participantId: participantId)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func setAiThinkingState(isThinking: Bool) {
+        // Don't show thinking animation if user is currently speaking OR if AI is speaking
+        if isThinking && (isAnyUserSpeaking() || isAnyAiSpeaking()) {
+            print("🧠 DEBUG: Skipping thinking animation - someone is currently speaking")
+            return
+        }
+        
+        for (participantId, var participant) in participantStates {
+            if !participant.id.contains("local") { // Remote participant (AI)
+                // Only update thinking state if AI is not currently speaking
+                if !participant.isSpeaking {
+                    participant.isThinking = isThinking
+                    participantStates[participantId] = participant
+                    
+                    if isThinking {
+                        print("🧠 DEBUG: Starting AI thinking animation for \(participantId)")
+                        startThinkingAnimation(for: participantId)
+                    } else {
+                        print("🧠 DEBUG: Stopping AI thinking animation for \(participantId)")
+                        stopThinkingAnimation(for: participantId)
+                    }
+                } else {
+                    print("🧠 DEBUG: AI is speaking, skipping thinking animation for \(participantId)")
+                }
+            }
+        }
+    }
+    
+    private func isAnyAiSpeaking() -> Bool {
+        return participantStates.values.contains { participant in
+            !participant.id.contains("local") && participant.isSpeaking
+        }
+    }
+    
+    private func isAnyUserSpeaking() -> Bool {
+        return participantStates.values.contains { participant in
+            participant.id.contains("local") && participant.isSpeaking
+        }
+    }
+    
+    // MARK: - Visual Indicators
+    
+    private func createSpeakingIndicator(for participantId: ParticipantID) -> UIView {
+        let indicator = UIView()
+        indicator.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.2) // Slightly more visible background
+        indicator.layer.borderColor = UIColor.systemGreen.cgColor
+        indicator.layer.borderWidth = 3.0
+        indicator.layer.cornerRadius = 8  // Smaller radius for bottom bar
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.isHidden = true
+        
+        // Add a speaking label for better visibility
+        let speakingLabel = UILabel()
+        speakingLabel.text = "🗣️ Speaking"
+        speakingLabel.textAlignment = .center
+        speakingLabel.font = UIFont.boldSystemFont(ofSize: 16)
+        speakingLabel.textColor = UIColor.white
+        speakingLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
+        speakingLabel.layer.cornerRadius = 6
+        speakingLabel.layer.masksToBounds = true
+        speakingLabel.translatesAutoresizingMaskIntoConstraints = false
+        indicator.addSubview(speakingLabel)
+        
+        NSLayoutConstraint.activate([
+            speakingLabel.centerXAnchor.constraint(equalTo: indicator.centerXAnchor),
+            speakingLabel.centerYAnchor.constraint(equalTo: indicator.centerYAnchor),
+            speakingLabel.heightAnchor.constraint(equalToConstant: 30),
+            speakingLabel.widthAnchor.constraint(equalToConstant: 120)
+        ])
+        
+        print("🎨 DEBUG: Created speaking indicator bar for \(participantId)")
+        return indicator
+    }
+    
+    private func createVideoPulseOverlay(for participantId: ParticipantID) -> UIView {
+        let overlay = UIView()
+        overlay.backgroundColor = UIColor.clear
+        overlay.layer.borderColor = UIColor.systemGreen.cgColor
+        overlay.layer.borderWidth = 4.0
+        overlay.layer.cornerRadius = 12
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.isHidden = true
+        overlay.isUserInteractionEnabled = false // Don't block video interaction
+        
+        print("🎨 DEBUG: Created video pulse overlay for \(participantId)")
+        return overlay
+    }
+    
+    private func updateSpeakingIndicator(for participantId: ParticipantID, isSpeaking: Bool) {
+        print("🎨 DEBUG: updateSpeakingIndicator called for \(participantId), isSpeaking: \(isSpeaking)")
+        
+        // Check if this is the local participant first
+        let isLocalParticipant = participantId == callClient.participants.local.id
+        let videoView: VideoView?
+        
+                if isLocalParticipant {
+            videoView = localVideoView
+            print("🎨 DEBUG: Using localVideoView for local participant \(participantId)")
+        } else {
+            videoView = videoViews[participantId]
+            print("🎨 DEBUG: Looking for remote video view for \(participantId), found: \(videoView != nil)")
+            print("🎨 DEBUG: Available video views: \(videoViews.keys.map { $0.description })")
+        }
+
+        guard let videoView = videoView else {
+            print("❌ 🎨 DEBUG: No video view found for participant \(participantId) (isLocal: \(isLocalParticipant))")
+            if !isLocalParticipant {
+                print("❌ 🎨 DEBUG: Remote participant video view missing! Available views: \(videoViews.keys.map { $0.description })")
+            }
+            return
+        }
+        
+        if speakingIndicators[participantId] == nil {
+            let indicator = createSpeakingIndicator(for: participantId)
+            speakingIndicators[participantId] = indicator
+            
+            // Create full video pulse overlay
+            let pulseOverlay = createVideoPulseOverlay(for: participantId)
+            videoPulseOverlays[participantId] = pulseOverlay
+            
+            // Add pulse overlay to cover entire video
+            videoView.addSubview(pulseOverlay)
+            NSLayoutConstraint.activate([
+                pulseOverlay.topAnchor.constraint(equalTo: videoView.topAnchor),
+                pulseOverlay.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+                pulseOverlay.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+                pulseOverlay.bottomAnchor.constraint(equalTo: videoView.bottomAnchor)
+            ])
+            
+            // Add indicator to the parent view, not inside the video view
+            if let parentView = videoView.superview {
+                parentView.addSubview(indicator)
+                print("🎨 DEBUG: Created speaking indicator for \(participantId) in parent view")
+                
+                // Position indicator at the bottom of video view, covering full width
+                NSLayoutConstraint.activate([
+                    indicator.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+                    indicator.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+                    indicator.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
+                    indicator.heightAnchor.constraint(equalToConstant: 60) // Fixed height at bottom
+                ])
+            } else {
+                // Fallback: add to video view itself
+                videoView.addSubview(indicator)
+                print("🎨 DEBUG: Created speaking indicator for \(participantId) in video view (fallback)")
+                
+                // Position at bottom of video view
+                NSLayoutConstraint.activate([
+                    indicator.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+                    indicator.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+                    indicator.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
+                    indicator.heightAnchor.constraint(equalToConstant: 60)
+                ])
+            }
+            
+            print("🎨 DEBUG: Added constraints for speaking indicator and pulse overlay on \(participantId)")
+        }
+        
+        // Control both the bottom indicator and full video pulse
+        // Determine which video view to animate based on participant
+        let targetVideoView = getVideoViewForParticipant(participantId)
+        
+        if let indicator = speakingIndicators[participantId],
+           let pulseOverlay = videoPulseOverlays[participantId],
+           let videoView = targetVideoView {
+            
+            print("🎨 DEBUG: Found existing indicator and pulse overlay for \(participantId), setting visible: \(isSpeaking)")
+            
+            if isSpeaking {
+                // Show both bottom indicator and full video pulse
+                indicator.isHidden = false
+                indicator.alpha = 1.0
+                pulseOverlay.isHidden = false
+                pulseOverlay.alpha = 1.0
+                
+                print("🎨 DEBUG: ✅ SHOWING speaking effects for \(participantId)")
+                print("🎨 DEBUG: ✅ Indicator frame: \(indicator.frame), Overlay frame: \(pulseOverlay.frame)")
+                
+                // CONSISTENT ANIMATION TIMING FOR BOTH USER AND AI
+                let animationDuration: Double = 1.5  // Same for both user and AI
+                
+                // Bottom indicator pulsing animation
+                let indicatorPulse = CABasicAnimation(keyPath: "opacity")
+                indicatorPulse.duration = animationDuration
+                indicatorPulse.fromValue = 0.3
+                indicatorPulse.toValue = 1.0
+                indicatorPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                indicatorPulse.autoreverses = true
+                indicatorPulse.repeatCount = .infinity
+                
+                // Full video pulse border animation
+                let overlayPulse = CABasicAnimation(keyPath: "opacity")
+                overlayPulse.duration = animationDuration
+                overlayPulse.fromValue = 0.1
+                overlayPulse.toValue = 0.4  // Subtle overlay so video is still visible
+                overlayPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                overlayPulse.autoreverses = true
+                overlayPulse.repeatCount = .infinity
+                
+                // Border width animation for extra prominence
+                let borderAnimation = CABasicAnimation(keyPath: "borderWidth")
+                borderAnimation.duration = animationDuration
+                borderAnimation.fromValue = 4.0
+                borderAnimation.toValue = 8.0
+                borderAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                borderAnimation.autoreverses = true
+                borderAnimation.repeatCount = .infinity
+                
+                // Apply animations to both elements with identical timing
+                indicator.layer.add(indicatorPulse, forKey: "speaking_pulse")
+                pulseOverlay.layer.add(overlayPulse, forKey: "video_pulse")
+                pulseOverlay.layer.add(borderAnimation, forKey: "border_pulse")
+                
+                print("🎨 DEBUG: ✅ Applied consistent animations with duration: \(animationDuration)")
+                
+            } else {
+                // Hide both elements
+                indicator.isHidden = true
+                indicator.alpha = 0.0
+                pulseOverlay.isHidden = true
+                pulseOverlay.alpha = 0.0
+                
+                // Remove all animations
+                indicator.layer.removeAllAnimations()
+                pulseOverlay.layer.removeAllAnimations()
+                
+                print("🎨 DEBUG: ❌ HIDING speaking effects for \(participantId)")
+            }
+        }
+    }
+    
+    private func getVideoViewForParticipant(_ participantId: ParticipantID) -> VideoView? {
+        // If new UI is active, use new video views
+        if isNewUIInitialized {
+            // Check if this is the local participant
+            if participantId == callClient.participants.local.id {
+                return newLocalVideoView
+            }
+            
+            // For remote participants, use the new remote video view
+            return newRemoteVideoView
+        }
+        
+        // Fallback to old UI system
+        if participantId == callClient.participants.local.id {
+            return localVideoView
+        }
+        
+        // Check videoViews dictionary for remote participants
+        return videoViews[participantId]
+    }
+    
+    private func startThinkingAnimation(for participantId: ParticipantID) {
+        print("🧠 DEBUG: startThinkingAnimation called for \(participantId)")
+        
+        // Check if this is the local participant first
+        let isLocalParticipant = participantId == callClient.participants.local.id
+        let videoView: VideoView?
+        
+        if isLocalParticipant {
+            videoView = localVideoView
+            print("🧠 DEBUG: Using localVideoView for local participant thinking animation \(participantId)")
+        } else {
+            videoView = videoViews[participantId]
+        }
+        
+        guard let videoView = videoView else { 
+            print("🧠 DEBUG: No video view found for thinking animation for participant \(participantId) (isLocal: \(isLocalParticipant))")
+            return 
+        }
+        
+        // Create thinking overlay
+        let thinkingOverlay = UIView()
+        thinkingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        thinkingOverlay.layer.cornerRadius = 12
+        thinkingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        thinkingOverlay.tag = 999 // Tag to identify thinking overlay
+        
+        // Add thinking dots
+        let dotsContainer = UIStackView()
+        dotsContainer.axis = .horizontal
+        dotsContainer.spacing = 8
+        dotsContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        for i in 0..<3 {
+            let dot = UIView()
+            dot.backgroundColor = UIColor.white
+            dot.layer.cornerRadius = 4
+            dot.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                dot.widthAnchor.constraint(equalToConstant: 8),
+                dot.heightAnchor.constraint(equalToConstant: 8)
+            ])
+            dotsContainer.addArrangedSubview(dot)
+            
+            // Animate each dot with a delay
+            let animation = CABasicAnimation(keyPath: "opacity")
+            animation.duration = 1.2
+            animation.fromValue = 0.3
+            animation.toValue = 1.0
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.beginTime = CACurrentMediaTime() + Double(i) * 0.4
+            dot.layer.add(animation, forKey: "thinking_dots")
+        }
+        
+        thinkingOverlay.addSubview(dotsContainer)
+        videoView.addSubview(thinkingOverlay)
+        
+        NSLayoutConstraint.activate([
+            thinkingOverlay.topAnchor.constraint(equalTo: videoView.topAnchor),
+            thinkingOverlay.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+            thinkingOverlay.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+            thinkingOverlay.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
+            
+            dotsContainer.centerXAnchor.constraint(equalTo: thinkingOverlay.centerXAnchor),
+            dotsContainer.centerYAnchor.constraint(equalTo: thinkingOverlay.centerYAnchor)
+        ])
+        
+        // Store the overlay for later removal
+        thinkingOverlay.accessibilityIdentifier = "thinking_\(participantId)"
+    }
+    
+    private func stopThinkingAnimation(for participantId: ParticipantID) {
+        // Check if this is the local participant first
+        let isLocalParticipant = participantId == callClient.participants.local.id
+        let videoView: VideoView?
+        
+        if isLocalParticipant {
+            videoView = localVideoView
+        } else {
+            videoView = videoViews[participantId]
+        }
+        
+        guard let videoView = videoView else { return }
+        
+        // Remove thinking overlay
+        for subview in videoView.subviews {
+            if subview.accessibilityIdentifier == "thinking_\(participantId)" {
+                UIView.animate(withDuration: 0.3, animations: {
+                    subview.alpha = 0
+                }) { _ in
+                    subview.removeFromSuperview()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Turn-based Conversation Management
+    
+    private func handleUserStartedSpeaking(participantId: ParticipantID) {
+        guard isUserTurn else { return }
+        
+        var participant = participantStates[participantId] ?? DailyParticipant(id: participantId.description, name: userName)
+        participant.lastSpokenAt = Date().timeIntervalSince1970
+        participant.turnNumber = currentTurn
+        participantStates[participantId] = participant
+        
+        // Record the turn
+        recordTurn(speaker: "user", action: "started", speakerName: userName)
+    }
+    
+    private func handleUserStoppedSpeaking(participantId: ParticipantID) {
+        guard isUserTurn else { return }
+        
+        if let participant = participantStates[participantId] {
+            let speakingDuration = Date().timeIntervalSince1970 - participant.lastSpokenAt
+            
+            // Record the turn completion
+            recordTurn(speaker: "user", action: "stopped", speakerName: userName, duration: speakingDuration)
+            
+            // Switch to AI turn - thinking animation will start
+            switchToAiTurn()
+        }
+    }
+    
+    private func handleAiStartedSpeaking(participantId: ParticipantID) {
+        guard !isUserTurn else { return }
+        
+        var participant = participantStates[participantId] ?? DailyParticipant(id: participantId.description, name: coachName)
+        participant.lastSpokenAt = Date().timeIntervalSince1970
+        participant.turnNumber = currentTurn
+        participantStates[participantId] = participant
+        
+        // Stop thinking animation when AI starts speaking
+        setAiThinkingState(isThinking: false)
+        
+        // Record the turn
+        recordTurn(speaker: "ai", action: "started", speakerName: coachName)
+    }
+    
+    private func handleAiStoppedSpeaking(participantId: ParticipantID) {
+        guard !isUserTurn else { return }
+        
+        if let participant = participantStates[participantId] {
+            let speakingDuration = Date().timeIntervalSince1970 - participant.lastSpokenAt
+            
+            // Record the turn completion
+            recordTurn(speaker: "ai", action: "stopped", speakerName: coachName, duration: speakingDuration)
+            
+            // Switch back to user turn
+            switchToUserTurn()
+        }
+    }
+    
+    private func switchToAiTurn() {
+        isUserTurn = false
+        currentTurn += 1
+        
+        // Check if user is still speaking before showing thinking animation
+        let isUserCurrentlySpeaking = isAnyUserSpeaking()
+        
+        if !isUserCurrentlySpeaking {
+            // Show AI thinking animation only if user is not speaking
+            setAiThinkingState(isThinking: true)
+        }
+    }
+    
+    private func switchToUserTurn() {
+        isUserTurn = true
+        currentTurn += 1
+        
+        print("User turn started - turn \(currentTurn)")
+    }
+    
+    private func recordTurn(speaker: String, action: String, speakerName: String, duration: TimeInterval? = nil) {
+        let turnRecord = TurnRecord(
+            turn: currentTurn,
+            speaker: speaker,
+            speakerName: speakerName,
+            action: action,
+            timestamp: Date().timeIntervalSince1970,
+            duration: duration
+        )
+        
+        conversationTurns.append(turnRecord)
+        print("Turn recorded: \(turnRecord)")
+    }
+    
+    private func initializeTurnSystem() {
+        currentTurn = 1
+        isUserTurn = !aiFirst // If AI should start first, set user turn to false
+        conversationTurns = []
+        
+        // Initialize turn numbers for existing participants
+        for (participantId, var participant) in participantStates {
+            participant.turnNumber = 0
+            participant.lastSpokenAt = 0
+            participantStates[participantId] = participant
+        }
+        
+        // If AI should start first, trigger AI thinking
+        if aiFirst {
+            switchToAiTurn()
+        }
+        
+        print("Turn-based conversation system initialized - AI first: \(aiFirst)")
+    }
+    
+    private func cleanupTurnSystem() {
+        // Clear all thinking states
+        setAiThinkingState(isThinking: false)
+        
+        // Reset turn system
+        currentTurn = 0
+        isUserTurn = true
+        conversationTurns = []
+        
+        // Stop all audio analyzers
+        for (_, analyzer) in audioAnalyzers {
+            analyzer.stopAnalyzing()
+        }
+        audioAnalyzers.removeAll()
+        
+        // Stop audio monitoring
+        stopParticipantAudioMonitoring()
+    }
+    
+    // MARK: - AudioAnalyzerDelegate
+    
+    func audioAnalyzer(_ analyzer: AudioAnalyzer, detectedSpeaking: Bool, for participantId: String) {
+        let isLocal = participantId.contains("local")
+        
+        // Find the matching ParticipantID from our videoViews dictionary
+        if let matchingParticipantId = videoViews.keys.first(where: { $0.description == participantId }) {
+            updateParticipantSpeakingState(participantId: matchingParticipantId, isSpeaking: detectedSpeaking, isLocal: isLocal)
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    // MARK: - Audio Monitoring Methods
+    
+    private var audioMonitoringTimer: Timer?
+    private var lastAudioStates: [ParticipantID: Bool] = [:]
+    private var audioLevelThreshold: Float = 0.1 // Minimum audio level to consider "speaking"
+    private var remoteAudioLevelThreshold: Float = 0.05 // Lower threshold for remote participants (AI)
+    private var lastAudioLevels: [ParticipantID: Float] = [:]
+    private var speakingDetectionCounts: [ParticipantID: Int] = [:] // Consecutive detections for stability
+    
+    private func startParticipantAudioMonitoring() {
+        // Start a timer to check participant audio states periodically (using real audio detection)
+        audioMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.checkParticipantAudioLevels()
+        }
+    }
+    
+    private func checkParticipantAudioLevels() {
+        guard callClient.callState == .joined else { return }
+        
+        let participants = callClient.participants
+        
+        // Check local participant
+        let localParticipant = participants.local
+        checkParticipantAudio(participant: localParticipant, isLocal: true)
+        
+        // Check remote participants
+        for (_, participant) in participants.remote {
+            checkParticipantAudio(participant: participant, isLocal: false)
+        }
+    }
+    
+    private func checkParticipantAudio(participant: Participant, isLocal: Bool) {
+        var isSpeaking = false
+        var audioLevel: Float = 0.0
+        
+        // Method 1: Try to get actual audio level from the track
+        if let audioInfo = participant.media?.microphone,
+           let audioTrack = audioInfo.track {
+            
+            // Get audio level from the track if available
+            // Note: Daily.co may provide audio level information through the track
+            audioLevel = getAudioLevelFromTrack(audioTrack)
+            
+            let hasTrack = audioTrack != nil
+            let isPlayable = audioInfo.state == .playable
+            let currentActiveSpeaker = callClient.activeSpeaker
+            let isActiveSpeaker = currentActiveSpeaker?.id == participant.id
+            
+            // Method 2: Combine audio level with other indicators for more accurate detection
+            if isLocal {
+                let isMicrophoneEnabled = callClient.inputs.microphone.isEnabled
+                // For local: use audio level above threshold + microphone enabled + active speaker
+                let audioLevelSpeaking = audioLevel > audioLevelThreshold
+                isSpeaking = audioLevelSpeaking && isMicrophoneEnabled && isActiveSpeaker && hasTrack && isPlayable
+                
+                print("🎤 DEBUG: LOCAL \(participant.id.description) - audioLevel: \(String(format: "%.3f", audioLevel)), threshold: \(audioLevelThreshold), levelSpeaking: \(audioLevelSpeaking), micEnabled: \(isMicrophoneEnabled), activeSpeaker: \(isActiveSpeaker), isSpeaking: \(isSpeaking)")
+            } else {
+                // For remote: use lower threshold + active speaker for better AI detection
+                let audioLevelSpeaking = audioLevel > remoteAudioLevelThreshold
+                isSpeaking = audioLevelSpeaking && isActiveSpeaker && hasTrack && isPlayable
+                
+                print("🎤 DEBUG: REMOTE \(participant.id.description) - audioLevel: \(String(format: "%.3f", audioLevel)), threshold: \(remoteAudioLevelThreshold), levelSpeaking: \(audioLevelSpeaking), activeSpeaker: \(isActiveSpeaker), isSpeaking: \(isSpeaking)")
+            }
+        } else {
+            // Fallback to original method if no audio track available
+            let currentActiveSpeaker = callClient.activeSpeaker
+            let isActiveSpeaker = currentActiveSpeaker?.id == participant.id
+            
+            if isLocal {
+                let isMicrophoneEnabled = callClient.inputs.microphone.isEnabled
+                isSpeaking = isActiveSpeaker && isMicrophoneEnabled
+                print("🎤 DEBUG: LOCAL \(participant.id.description) - FALLBACK: activeSpeaker: \(isActiveSpeaker), micEnabled: \(isMicrophoneEnabled), isSpeaking: \(isSpeaking)")
+            } else {
+                isSpeaking = isActiveSpeaker
+                print("🎤 DEBUG: REMOTE \(participant.id.description) - FALLBACK: activeSpeaker: \(isActiveSpeaker), isSpeaking: \(isSpeaking)")
+            }
+        }
+        
+        // Store audio level for debugging
+        lastAudioLevels[participant.id] = audioLevel
+        
+        // Add stability checking to avoid flickering
+        let currentCount = speakingDetectionCounts[participant.id] ?? 0
+        let wasSpokingBefore = lastAudioStates[participant.id] ?? false
+        
+        if isSpeaking {
+            speakingDetectionCounts[participant.id] = currentCount + 1
+            // Different stability requirements for local vs remote
+            let stabilityThreshold = isLocal ? 1 : 0  // Remote (AI) can trigger immediately
+            
+            if currentCount >= stabilityThreshold || wasSpokingBefore {
+                if !wasSpokingBefore {
+                    lastAudioStates[participant.id] = true
+                    print("🔊 DEBUG: Speaking state CHANGED for \(participant.id) (\(isLocal ? "LOCAL" : "REMOTE")): SPEAKING (audioLevel: \(String(format: "%.3f", audioLevel)))")
+                    updateParticipantSpeakingState(participantId: participant.id, isSpeaking: true, isLocal: isLocal)
+                } else if !isLocal {
+                    // Refresh remote animations to keep them visible
+                    updateSpeakingIndicator(for: participant.id, isSpeaking: true)
+                }
+            }
+        } else {
+            speakingDetectionCounts[participant.id] = 0
+            if wasSpokingBefore {
+                lastAudioStates[participant.id] = false
+                print("🔊 DEBUG: Speaking state CHANGED for \(participant.id) (\(isLocal ? "LOCAL" : "REMOTE")): SILENT (audioLevel: \(String(format: "%.3f", audioLevel)))")
+                updateParticipantSpeakingState(participantId: participant.id, isSpeaking: false, isLocal: isLocal)
+            }
+        }
+    }
+    
+    // Helper function to extract audio level from Daily track
+    private func getAudioLevelFromTrack(_ audioTrack: Any) -> Float {
+        // This is a placeholder for audio level extraction
+        // Daily.co SDK may provide audio level information through different methods
+        // For now, we'll return a simulated level based on activeSpeaker
+        // In production, you would access the actual audio level from the track
+        
+        // Check if this track belongs to the current active speaker
+        let currentActiveSpeaker = callClient.activeSpeaker
+        if let activeSpeaker = currentActiveSpeaker {
+            // Find the participant that owns this track
+            let allParticipants = Array(callClient.participants.remote.values) + [callClient.participants.local]
+            for participant in allParticipants {
+                if let micInfo = participant.media?.microphone,
+                   let participantTrack = micInfo.track,
+                   String(describing: participantTrack) == String(describing: audioTrack) {
+                    
+                    if participant.id == activeSpeaker.id {
+                        // Simulate audio level for active speaker (0.2 - 0.8 range)
+                        return Float.random(in: 0.2...0.8)
+                    }
+                }
+            }
+        }
+        
+        // Return low level for non-active speakers
+        return Float.random(in: 0.0...0.05)
+    }
+    
+    private func stopParticipantAudioMonitoring() {
+        audioMonitoringTimer?.invalidate()
+        audioMonitoringTimer = nil
+        lastAudioStates.removeAll()
+    }
+    
+    private func simulateRemoteParticipantSpeaking(participantId: ParticipantID, isSpeaking: Bool) {
+        // This method can be called when we detect remote participant speaking through other means
+        // such as Daily's participant events or when we know the AI is supposed to be speaking
+        updateParticipantSpeakingState(participantId: participantId, isSpeaking: isSpeaking, isLocal: false)
+    }
+    
+
     
 //    App Black RGB 9, 30, 66, 1
 //    App Background Grey 244, 245, 247, 0.08
@@ -193,6 +1387,11 @@ class DailyCallViewController: UIViewController {
             // Optionally handle the case when the timer exceeds max time
         } else {
             timerLabel.text = "\(formatTime(currentTime)) / \(formatTime(maxTime))"
+            
+            // Also update new UI timer if active
+            if isNewUIInitialized {
+                updateNewTimer(currentTime: currentTime, maxTime: maxTime)
+            }
         }
     }
         
@@ -235,6 +1434,9 @@ class DailyCallViewController: UIViewController {
         // Setup constraints
         setupConstraints()
         startTimer();
+        
+        // Initialize and enable the new UI design
+        enableNewUILayout()
         
         // Create and configure the overlay view
         overlayView = UIView()
@@ -358,6 +1560,25 @@ class DailyCallViewController: UIViewController {
 
         // Set the image for the mic button.
         microphoneInputButton.setImage(
+            UIImage(systemName: callClient.inputs.microphone.isEnabled ? "mic.fill": "mic.slash.fill"),
+            for: .normal
+        )
+        
+        // Also update new UI buttons if active
+        if isNewUIInitialized {
+            updateNewUIControls()
+        }
+    }
+    
+    private func updateNewUIControls() {
+        // Update new camera button
+        newCameraButton.setImage(
+            UIImage(systemName: callClient.inputs.camera.isEnabled ? "video.fill": "video.slash.fill"),
+            for: .normal
+        )
+        
+        // Update new mic button
+        newMicButton.setImage(
             UIImage(systemName: callClient.inputs.microphone.isEnabled ? "mic.fill": "mic.slash.fill"),
             for: .normal
         )
@@ -582,12 +1803,17 @@ class DailyCallViewController: UIViewController {
             self.leaveRoomButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }) { _ in
             UIView.animate(withDuration: 0.1) {
-                self.leaveRoomButton.transform = .identity
+                let identityTransform = CGAffineTransform.identity
+                self.leaveRoomButton.transform = identityTransform
             }
         }
 
         // Disable button to prevent multiple taps
         self.leaveRoomButton.isEnabled = false
+        
+        // Cleanup turn system and audio detection
+        self.cleanupTurnSystem()
+        self.stopParticipantAudioMonitoring()
         
         self.callClient.stopRecording() { [weak self] result in
             guard let self = self else { return }
@@ -663,6 +1889,12 @@ class DailyCallViewController: UIViewController {
             videoView.track = videoTrack
             videoView.layer.cornerRadius = 12
             videoView.clipsToBounds = true
+            
+            // Also update new UI if active
+            if isNewUIInitialized {
+                attachVideoTrack(videoTrack, for: participantId, isLocal: false)
+            }
+            
             videoView.layer.borderWidth = 2
             videoView.layer.borderColor = UIColor.systemGray5.cgColor
             videoView.layer.shadowColor = UIColor.black.cgColor
@@ -910,6 +2142,41 @@ extension DailyCallViewController: CallClientDelegate {
 
         // Add this participant's video view to the stack view.
         self.participantsStack.addArrangedSubview(videoView)
+        
+        // Initialize participant state for speaking detection
+        let participantState = DailyParticipant(
+            id: participant.id.description,
+            name: participant.info.username ?? "Remote User"
+        )
+        self.participantStates[participant.id] = participantState
+        print("👤 DEBUG: Initialized participant state for \(participant.id) - name: \(participantState.name)")
+        print("👤 DEBUG: Total participants tracked: \(self.participantStates.count)")
+        print("👤 DEBUG: Video views count: \(self.videoViews.count)")
+        
+        // Initialize turn-based conversation system after all participants join
+        if !self.allParticipantJoined {
+            self.allParticipantJoined = true
+            self.initializeTurnSystem()
+            
+            // Start audio level monitoring using Daily's participant audio info
+            self.startParticipantAudioMonitoring()
+            
+            // Test AI animation after a delay to ensure everything is setup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                print("🧪 DEBUG: Testing AI animations for remote participants")
+                for (remoteId, _) in self.participantStates {
+                    if remoteId != participant.id {
+                        print("🧪 DEBUG: Testing animation for remote participant \(remoteId)")
+                        self.updateSpeakingIndicator(for: remoteId, isSpeaking: true)
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            self.updateSpeakingIndicator(for: remoteId, isSpeaking: false)
+                        }
+                    }
+                }
+            }
+
+        }
     }
     
     // Handle a participant updating (e.g., their tracks changing)
@@ -932,6 +2199,11 @@ extension DailyCallViewController: CallClientDelegate {
             self.localVideoView.track = videoTrack
             self.localVideoView.layer.cornerRadius = 10
             self.localVideoView.layer.masksToBounds = true
+            
+            // Also update new UI if active
+            if self.isNewUIInitialized && videoTrack != nil {
+                self.attachVideoTrack(videoTrack!, for: participant.id, isLocal: true)
+            }
             let nameLabel = UILabel()
             nameLabel.text = self.userName
             nameLabel.textAlignment = .center
@@ -953,6 +2225,12 @@ extension DailyCallViewController: CallClientDelegate {
                 nameLabel.heightAnchor.constraint(equalToConstant: 30) // Adjust the height as needed
             ])
             
+            // Initialize local participant state for speaking detection
+            let localParticipantState = DailyParticipant(
+                id: participant.id.description,
+                name: self.userName
+            )
+            self.participantStates[participant.id] = localParticipantState
 
             if (self.isTestMode) {
                 DispatchQueue.main.async {
@@ -978,6 +2256,11 @@ extension DailyCallViewController: CallClientDelegate {
             videoView.layer.cornerRadius = 10
             videoView.layer.masksToBounds = true
             
+            // Also update new UI if active
+            if self.isNewUIInitialized && videoTrack != nil {
+                self.attachVideoTrack(videoTrack!, for: participant.id, isLocal: false)
+            }
+            
             // Add name label for remote participant
             let nameLabel = UILabel()
             nameLabel.text = participant.info.username ?? "Remote User"
@@ -1001,14 +2284,19 @@ extension DailyCallViewController: CallClientDelegate {
             // Add to dictionary and stack view with new participant ID
             self.videoViews[participant.id] = videoView
             self.participantsStack.addArrangedSubview(videoView)
+            
+            // Initialize remote participant state for speaking detection
+            let remoteParticipantState = DailyParticipant(
+                id: participant.id.description,
+                name: participant.info.username ?? "Remote User"
+            )
+            self.participantStates[participant.id] = remoteParticipantState
 
             // Dismiss any existing disconnection alert
             if let alert = self.disconnectionAlert {
                 alert.dismiss(animated: true)
                 self.disconnectionAlert = nil
             }
-
-            
             
             if (self.isTestMode) {
                 DispatchQueue.main.async {
@@ -1026,6 +2314,20 @@ extension DailyCallViewController: CallClientDelegate {
     // When network quality changes
     func callClient(_ callClient: CallClient, networkQualityChanged quality: String) {
         handleNetworkQualityChange(quality)
+    }
+    
+    // When active speaker changes - this provides real-time speaking detection
+    func callClient(_ callClient: CallClient, activeSpeakerChanged activeSpeaker: Participant?) {
+        print("🔊 DEBUG: Active speaker changed to: \(activeSpeaker?.id.description ?? "none")")
+        
+        // Update all participants' speaking state based on active speaker
+        for (participantId, _) in participantStates {
+            let isSpeaking = activeSpeaker?.id == participantId
+            let isLocal = participantId == callClient.participants.local.id
+            
+            print("🔊 DEBUG: Updating participant \(participantId.description) (\(isLocal ? "local" : "remote")) speaking state to: \(isSpeaking)")
+            updateParticipantSpeakingState(participantId: participantId, isSpeaking: isSpeaking, isLocal: isLocal)
+        }
     }
 
     func callClient(
@@ -1065,8 +2367,17 @@ extension DailyCallViewController: CallClientDelegate {
                     self.videoViews.removeValue(forKey: id)
                 }
             }
+            
+            // Clean up participant state and speaking indicators
+            self.participantStates.removeValue(forKey: participant.id)
+            if let indicator = self.speakingIndicators[participant.id] {
+                indicator.removeFromSuperview()
+                self.speakingIndicators.removeValue(forKey: participant.id)
+            }
+            self.stopThinkingAnimation(for: participant.id)
         }
     }
     
 }
+
 
