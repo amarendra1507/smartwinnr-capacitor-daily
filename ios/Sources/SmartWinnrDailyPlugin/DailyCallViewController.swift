@@ -12,6 +12,158 @@ import DailySystemBroadcast
 import ReplayKit
 import AVFoundation
 
+// MARK: - Server Event Delegate Protocol
+
+protocol ServerEventDelegate: AnyObject {
+    func didReceiveServerEvent(_ event: ServerEvent)
+    func didReceiveAnimationEvent(_ event: AnimationEvent)
+    func didReceiveConversationEvent(_ event: ConversationEvent)
+    func didReceiveErrorEvent(_ event: ErrorEvent)
+}
+
+// MARK: - Event Models
+
+struct ServerEvent: Codable {
+    let type: EventType
+    let timestamp: TimeInterval
+    let participantId: String?
+    let data: [String: Any]
+    
+    enum CodingKeys: String, CodingKey {
+        case type, timestamp, participantId, data
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(EventType.self, forKey: .type)
+        timestamp = try container.decode(TimeInterval.self, forKey: .timestamp)
+        participantId = try container.decodeIfPresent(String.self, forKey: .participantId)
+        
+        // Handle the data field as a dictionary
+        if container.contains(.data) {
+            data = try container.decode([String: AnyCodable].self, forKey: .data).mapValues { $0.value }
+        } else {
+            data = [:]
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(participantId, forKey: .participantId)
+        try container.encode(data.mapValues { AnyCodable($0) }, forKey: .data)
+    }
+}
+
+struct AnyCodable: Codable {
+    let value: Any
+    
+    init(_ value: Any) {
+        self.value = value
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        
+        if let intValue = try? container.decode(Int.self) {
+            value = intValue
+        } else if let doubleValue = try? container.decode(Double.self) {
+            value = doubleValue
+        } else if let stringValue = try? container.decode(String.self) {
+            value = stringValue
+        } else if let boolValue = try? container.decode(Bool.self) {
+            value = boolValue
+        } else if let arrayValue = try? container.decode([AnyCodable].self) {
+            value = arrayValue.map { $0.value }
+        } else if let dictValue = try? container.decode([String: AnyCodable].self) {
+            value = dictValue.mapValues { $0.value }
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported type")
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        
+        switch value {
+        case let intValue as Int:
+            try container.encode(intValue)
+        case let doubleValue as Double:
+            try container.encode(doubleValue)
+        case let stringValue as String:
+            try container.encode(stringValue)
+        case let boolValue as Bool:
+            try container.encode(boolValue)
+        case let arrayValue as [Any]:
+            try container.encode(arrayValue.map { AnyCodable($0) })
+        case let dictValue as [String: Any]:
+            try container.encode(dictValue.mapValues { AnyCodable($0) })
+        default:
+            let context = EncodingError.Context(codingPath: container.codingPath, debugDescription: "Unsupported type")
+            throw EncodingError.invalidValue(value, context)
+        }
+    }
+}
+
+enum EventType: String, Codable {
+    case animation = "animation"
+    case conversation = "conversation"
+    case participant = "participant"
+    case error = "error"
+    case custom = "custom"
+}
+
+struct AnimationEvent: Codable {
+    let participantId: String
+    let animationType: AnimationType
+    let duration: TimeInterval?
+    let intensity: Float?
+    let metadata: [String: String]?
+    
+    enum AnimationType: String, Codable {
+        case startSpeaking = "start_speaking"
+        case stopSpeaking = "stop_speaking"
+        case startThinking = "start_thinking"
+        case stopThinking = "stop_thinking"
+        case pulse = "pulse"
+        case highlight = "highlight"
+        case fadeIn = "fade_in"
+        case fadeOut = "fade_out"
+        case custom = "custom"
+    }
+}
+
+struct ConversationEvent: Codable {
+    let participantId: String
+    let action: ConversationAction
+    let turnNumber: Int?
+    let timestamp: TimeInterval
+    let message: String?
+    
+    enum ConversationAction: String, Codable {
+        case turnStart = "turn_start"
+        case turnEnd = "turn_end"
+        case messageReceived = "message_received"
+        case messageSent = "message_sent"
+        case aiResponse = "ai_response"
+    }
+}
+
+struct ErrorEvent: Codable {
+    let errorCode: String
+    let message: String
+    let participantId: String?
+    let severity: ErrorSeverity
+    
+    enum ErrorSeverity: String, Codable {
+        case low = "low"
+        case medium = "medium"
+        case high = "high"
+        case critical = "critical"
+    }
+}
+
 // Audio analyzer delegate protocol
 protocol AudioAnalyzerDelegate: AnyObject {
     func audioAnalyzer(_ analyzer: AudioAnalyzer, detectedSpeaking: Bool, for participantId: String)
@@ -86,7 +238,7 @@ class AudioAnalyzer {
     }
 }
 
-class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
+class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEventDelegate {
     @IBOutlet private weak var systemBroadcastPickerView: UIView!
     
     // MARK: - UI Components to match the design (New UI Elements)
@@ -153,6 +305,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     private let speechThresholdRemote: Float = 0.10
     private let speakingFramesThreshold: Int = 3
     private let silentFramesThreshold: Int = 8
+    
+    // MARK: - Server Event Properties
+    weak var serverEventDelegate: ServerEventDelegate?
+    private var eventQueue: DispatchQueue = DispatchQueue(label: "ServerEventQueue", qos: .userInitiated)
+    private var isEventHandlingActive: Bool = true
     
     struct TurnRecord {
         let turn: Int
@@ -262,10 +419,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         newLocalVideoContainer.addSubview(newLocalVideoView)
         newRemoteVideoContainer.addSubview(newRemoteVideoView)
         
-        // Setup main stack view with responsive layout
-        newMainStackView.axis = isIPad ? .horizontal : .vertical
+        // Setup main stack view with responsive layout based on orientation
+        updateStackViewForCurrentOrientation()
         newMainStackView.distribution = .fillEqually
-        newMainStackView.spacing = isIPad ? 20 : 30
         newMainStackView.translatesAutoresizingMaskIntoConstraints = false
         
         newMainStackView.addArrangedSubview(newLocalVideoContainer)
@@ -332,11 +488,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     
     private func setupNewConstraints() {
         NSLayoutConstraint.activate([
-            // Container view - anchored to safe area with proper spacing
+            // Container view - fill the safe area
             newContentContainerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             newContentContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             newContentContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            newContentContainerView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            newContentContainerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
             
             // Coaching title at the top of container
             newCoachingTitleLabel.topAnchor.constraint(equalTo: newContentContainerView.topAnchor),
@@ -350,35 +506,28 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             newTimerLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 250),
             newTimerLabel.heightAnchor.constraint(equalToConstant: 40),
             
-            // Main stack view below timer
-            newMainStackView.topAnchor.constraint(equalTo: newTimerLabel.bottomAnchor, constant: 20),
+            // Main stack view - centered vertically between timer and button
+            newMainStackView.centerYAnchor.constraint(equalTo: newContentContainerView.centerYAnchor, constant: 20),
             newMainStackView.leadingAnchor.constraint(equalTo: newContentContainerView.leadingAnchor, constant: 10),
             newMainStackView.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor, constant: -10),
+            newMainStackView.topAnchor.constraint(greaterThanOrEqualTo: newTimerLabel.bottomAnchor, constant: 20),
             
             // Fixed aspect ratio for video containers to prevent sizing issues
             newLocalVideoContainer.heightAnchor.constraint(equalTo: newLocalVideoContainer.widthAnchor, multiplier: 0.75),
             newRemoteVideoContainer.heightAnchor.constraint(equalTo: newRemoteVideoContainer.widthAnchor, multiplier: 0.75),
             
-            // Participant labels - positioned differently for iPad vs iPhone
-        ])
-        
-        // Participant labels positioned below each video container, right-aligned and closer
-        NSLayoutConstraint.activate([
-            // Local participant label below video container, closer and right-aligned
+            // Participant labels positioned below each video container with right padding
             newLocalParticipantLabel.topAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: 4),
             newLocalParticipantLabel.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor),
-            newLocalParticipantLabel.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor),
+            newLocalParticipantLabel.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor, constant: -8), // 8pt right padding
             newLocalParticipantLabel.heightAnchor.constraint(equalToConstant: 20),
             
-            // Remote participant label below video container, closer and right-aligned
+            // Remote participant label with right padding
             newRemoteParticipantLabel.topAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: 4),
             newRemoteParticipantLabel.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor),
-            newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor),
+            newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor, constant: -8), // 8pt right padding
             newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 20),
-        ])
-        
-        // Common constraints for both layouts
-        NSLayoutConstraint.activate([
+            
             // Video views inside their containers
             newLocalVideoView.topAnchor.constraint(equalTo: newLocalVideoContainer.topAnchor, constant: 4),
             newLocalVideoView.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor, constant: 4),
@@ -408,7 +557,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
             newMicButton.widthAnchor.constraint(equalToConstant: 32),
             newMicButton.heightAnchor.constraint(equalToConstant: 32),
             
-            // End role play button - at bottom of container, accounting for participant labels
+            // End role play button - at bottom of container
             newEndRolePlayButton.topAnchor.constraint(greaterThanOrEqualTo: newRemoteParticipantLabel.bottomAnchor, constant: 20),
             newEndRolePlayButton.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
             newEndRolePlayButton.widthAnchor.constraint(equalToConstant: 200),
@@ -431,7 +580,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         // Disable button to prevent multiple taps
         self.newEndRolePlayButton.isEnabled = false
         
-        // Cleanup turn system and audio detection
+        // Cleanup turn system - audio detection already disabled
         self.cleanupTurnSystem()
         
         // Stop recording if it's running
@@ -531,6 +680,36 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         if let remoteName = remoteName {
             newRemoteParticipantLabel.text = remoteName
         }
+    }
+    
+    // MARK: - Orientation Handling
+    
+    private func updateStackViewForCurrentOrientation() {
+        let isLandscape = UIDevice.current.orientation.isLandscape || 
+                         view.frame.width > view.frame.height
+        
+        if isLandscape {
+            // Landscape: horizontal layout
+            newMainStackView.axis = .horizontal
+            newMainStackView.spacing = 20
+            print("🔄 DEBUG: Layout set to HORIZONTAL (landscape)")
+        } else {
+            // Portrait: vertical layout
+            newMainStackView.axis = .vertical
+            newMainStackView.spacing = 30
+            print("🔄 DEBUG: Layout set to VERTICAL (portrait)")
+        }
+    }
+    
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        
+        coordinator.animate(alongsideTransition: { _ in
+            // Update layout during rotation
+            if self.isNewUIInitialized {
+                self.updateStackViewForCurrentOrientation()
+            }
+        }, completion: nil)
     }
     
     // Method to attach video tracks to the new UI
@@ -671,22 +850,28 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         }
         
         for (participantId, var participant) in participantStates {
-            if !participant.id.contains("local") { // Remote participant (AI)
+            // EXPLICITLY check: only for remote (AI) participants, never for local user
+            let isLocalParticipant = participantId == callClient.participants.local.id
+            let isAiParticipant = !participant.id.contains("local") && !isLocalParticipant
+            
+            if isAiParticipant { // Remote participant (AI) only
                 // Only update thinking state if AI is not currently speaking
                 if !participant.isSpeaking {
                     participant.isThinking = isThinking
                     participantStates[participantId] = participant
                     
                     if isThinking {
-                        print("🧠 DEBUG: Starting AI thinking animation for \(participantId)")
+                        print("🧠 DEBUG: Starting AI thinking animation for AI participant \(participantId)")
                         startThinkingAnimation(for: participantId)
                     } else {
-                        print("🧠 DEBUG: Stopping AI thinking animation for \(participantId)")
+                        print("🧠 DEBUG: Stopping AI thinking animation for AI participant \(participantId)")
                         stopThinkingAnimation(for: participantId)
                     }
                 } else {
                     print("🧠 DEBUG: AI is speaking, skipping thinking animation for \(participantId)")
                 }
+            } else {
+                print("🧠 DEBUG: Skipping participant \(participantId) - not an AI participant (isLocal: \(isLocalParticipant))")
             }
         }
     }
@@ -813,76 +998,139 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
     private func startThinkingAnimation(for participantId: ParticipantID) {
         print("🧠 DEBUG: startThinkingAnimation called for \(participantId)")
         
-        // Get the correct video view for the current UI mode
+        // Only show thinking animation for AI (non-local) participants
+        let isLocal = participantId == callClient.participants.local.id
+        if isLocal {
+            print("🧠 DEBUG: Skipping thinking animation for local user - AI only")
+            return
+        }
+        
+        // For new UI mode, position thinking dots next to the AI name label
+        if isNewUIInitialized {
+            startThinkingAnimationForNewUI(participantId: participantId)
+            return
+        }
+        
+        // Fallback to old UI positioning (center of video)
         guard let videoView = getVideoViewForParticipant(participantId) else {
             print("🧠 DEBUG: No video view found for thinking animation for participant \(participantId)")
             return 
         }
         
-        // Create thinking overlay
-        let thinkingOverlay = UIView()
-        thinkingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        thinkingOverlay.layer.cornerRadius = 12
-        thinkingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        thinkingOverlay.tag = 999 // Tag to identify thinking overlay
+        // Create thinking dots container (smaller for old UI)
+        let dotsContainer = createThinkingDotsContainer(dotSize: 6, spacing: 6)
+        dotsContainer.accessibilityIdentifier = "thinking_\(participantId)"
         
-        // Add thinking dots
-        let dotsContainer = UIStackView()
-        dotsContainer.axis = .horizontal
-        dotsContainer.spacing = 8
+        videoView.addSubview(dotsContainer)
+        
+        NSLayoutConstraint.activate([
+            dotsContainer.centerXAnchor.constraint(equalTo: videoView.centerXAnchor),
+            dotsContainer.centerYAnchor.constraint(equalTo: videoView.centerYAnchor),
+            dotsContainer.heightAnchor.constraint(equalToConstant: 20),
+            dotsContainer.widthAnchor.constraint(equalToConstant: 22) // 6*3 + 2*2 = 22
+        ])
+    }
+    
+    private func startThinkingAnimationForNewUI(participantId: ParticipantID) {
+        print("🧠 DEBUG: Starting thinking animation for AI in new UI")
+        
+        // Double-check this is for AI only (not local user)
+        let isLocal = participantId == callClient.participants.local.id
+        if isLocal {
+            print("🧠 DEBUG: Skipping thinking animation - this is for local user, AI only!")
+            return
+        }
+        
+        // Create thinking dots container with larger, more visible dots
+        let dotsContainer = createThinkingDotsContainer(dotSize: 6, spacing: 4)
+        dotsContainer.accessibilityIdentifier = "thinking_\(participantId)"
+        
+        // Add to the same container as the video views
+        newContentContainerView.addSubview(dotsContainer)
+        
+        // Position on the same line as AI name label, with left padding from AI video edge
+        NSLayoutConstraint.activate([
+            dotsContainer.centerYAnchor.constraint(equalTo: newRemoteParticipantLabel.centerYAnchor),
+            dotsContainer.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 8), // 8pt left padding
+            dotsContainer.heightAnchor.constraint(equalToConstant: 20),
+            dotsContainer.widthAnchor.constraint(equalToConstant: 26) // 6*3 + 4*2 = 26
+        ])
+        
+        print("🧠 DEBUG: Thinking dots positioned on same line as AI name, to the left")
+    }
+    
+    private func createThinkingDotsContainer(dotSize: CGFloat, spacing: CGFloat) -> UIView {
+        // Create a simple container view instead of StackView to avoid constraint conflicts
+        let dotsContainer = UIView()
         dotsContainer.translatesAutoresizingMaskIntoConstraints = false
+        dotsContainer.backgroundColor = UIColor.clear
+        
+        let totalWidth = (dotSize * 3) + (spacing * 2)
         
         for i in 0..<3 {
             let dot = UIView()
-            dot.backgroundColor = UIColor.white
-            dot.layer.cornerRadius = 4
+            dot.backgroundColor = UIColor.systemBlue // Blue dots for AI thinking
+            dot.layer.cornerRadius = dotSize / 2
             dot.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                dot.widthAnchor.constraint(equalToConstant: 8),
-                dot.heightAnchor.constraint(equalToConstant: 8)
-            ])
-            dotsContainer.addArrangedSubview(dot)
+            dot.alpha = 0.3 // Start with low opacity
             
-            // Animate each dot with a delay
-            let animation = CABasicAnimation(keyPath: "opacity")
-            animation.duration = 1.2
-            animation.fromValue = 0.3
-            animation.toValue = 1.0
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            animation.autoreverses = true
-            animation.repeatCount = .infinity
-            animation.beginTime = CACurrentMediaTime() + Double(i) * 0.4
-            dot.layer.add(animation, forKey: "thinking_dots")
+            dotsContainer.addSubview(dot)
+            
+            // Position each dot manually
+            let xPosition = CGFloat(i) * (dotSize + spacing)
+            NSLayoutConstraint.activate([
+                dot.widthAnchor.constraint(equalToConstant: dotSize),
+                dot.heightAnchor.constraint(equalToConstant: dotSize),
+                dot.leadingAnchor.constraint(equalTo: dotsContainer.leadingAnchor, constant: xPosition),
+                dot.centerYAnchor.constraint(equalTo: dotsContainer.centerYAnchor)
+            ])
+            
+            // Start animation immediately after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.animateDot(dot, delay: Double(i) * 0.4)
+            }
         }
         
-        thinkingOverlay.addSubview(dotsContainer)
-        videoView.addSubview(thinkingOverlay)
-        
-        NSLayoutConstraint.activate([
-            thinkingOverlay.topAnchor.constraint(equalTo: videoView.topAnchor),
-            thinkingOverlay.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-            thinkingOverlay.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-            thinkingOverlay.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
-            
-            dotsContainer.centerXAnchor.constraint(equalTo: thinkingOverlay.centerXAnchor),
-            dotsContainer.centerYAnchor.constraint(equalTo: thinkingOverlay.centerYAnchor)
-        ])
-        
-        // Store the overlay for later removal
-        thinkingOverlay.accessibilityIdentifier = "thinking_\(participantId)"
+        return dotsContainer
+    }
+    
+    private func animateDot(_ dot: UIView, delay: TimeInterval) {
+        // Create a repeating fade animation
+        UIView.animateKeyframes(withDuration: 1.2, delay: delay, options: [.repeat, .autoreverse], animations: {
+            UIView.addKeyframe(withRelativeStartTime: 0.0, relativeDuration: 1.0) {
+                dot.alpha = 1.0
+            }
+        }, completion: nil)
     }
     
     private func stopThinkingAnimation(for participantId: ParticipantID) {
-        // Get the correct video view for the current UI mode
+        print("🧠 DEBUG: Stopping thinking animation for \(participantId)")
+        
+        // For new UI mode, remove from content container
+        if isNewUIInitialized {
+            for subview in newContentContainerView.subviews {
+                if subview.accessibilityIdentifier == "thinking_\(participantId)" {
+                    UIView.animate(withDuration: 0.3, animations: {
+                        subview.alpha = 0
+                    }) { _ in
+                        subview.removeFromSuperview()
+                        print("🧠 DEBUG: Removed thinking dots from new UI")
+                    }
+                }
+            }
+            return
+        }
+        
+        // Fallback for old UI - remove from video view
         guard let videoView = getVideoViewForParticipant(participantId) else { return }
         
-        // Remove thinking overlay
         for subview in videoView.subviews {
             if subview.accessibilityIdentifier == "thinking_\(participantId)" {
                 UIView.animate(withDuration: 0.3, animations: {
                     subview.alpha = 0
                 }) { _ in
                     subview.removeFromSuperview()
+                    print("🧠 DEBUG: Removed thinking dots from old UI")
                 }
             }
         }
@@ -1027,6 +1275,493 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         if let matchingParticipantId = videoViews.keys.first(where: { $0.description == participantId }) {
             updateParticipantSpeakingState(participantId: matchingParticipantId, isSpeaking: detectedSpeaking, isLocal: isLocal)
         }
+    }
+    
+    // MARK: - Server Event Handling Methods
+    
+    /// Process incoming JSON event from server
+    func processServerEventFromJSON(_ jsonString: String) {
+        eventQueue.async { [weak self] in
+            guard let self = self, self.isEventHandlingActive else { return }
+            
+            do {
+                let jsonData = Data(jsonString.utf8)
+                
+                // First try to parse as the new message format
+                if let messageDict = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                   let messageType = messageDict["type"] as? String {
+                    
+                    print("📡 DEBUG: Received message type: \(messageType)")
+                    
+                    DispatchQueue.main.async {
+                        self.handleSpecificMessageType(messageType, payload: messageDict["payload"] as? [String: Any])
+                    }
+                    return
+                }
+                
+                // Fallback to original ServerEvent format
+                let serverEvent = try JSONDecoder().decode(ServerEvent.self, from: jsonData)
+                print("📡 DEBUG: Received server event: \(serverEvent.type.rawValue) for participant: \(serverEvent.participantId ?? "unknown")")
+                
+                DispatchQueue.main.async {
+                    self.handleServerEvent(serverEvent)
+                }
+            } catch {
+                print("❌ DEBUG: Failed to parse JSON message: \(error)")
+                print("❌ DEBUG: JSON content: \(jsonString)")
+            }
+        }
+    }
+    
+    /// Handle specific message types for speaking events
+    private func handleSpecificMessageType(_ messageType: String, payload: [String: Any]?) {
+        print("🎯 DEBUG: Handling message type: \(messageType)")
+        
+        let participant = payload?["participant"] as? String ?? "unknown"
+        let reason = payload?["reason"] as? String ?? "unknown"
+        
+        print("🎯 DEBUG: Participant: \(participant), Reason: \(reason)")
+        
+        switch messageType {
+        case "USER_STARTED_SPEAKING":
+            handleUserStartedSpeakingMessage()
+            
+        case "USER_STOPPED_SPEAKING":
+            handleUserStoppedSpeakingMessage()
+            
+        case "BOT_STARTED_SPEAKING":
+            handleBotStartedSpeakingMessage()
+            
+        case "BOT_STOPPED_SPEAKING":
+            handleBotStoppedSpeakingMessage()
+            
+        default:
+            print("⚠️ DEBUG: Unknown message type: \(messageType)")
+        }
+    }
+    
+    /// Handle USER_STARTED_SPEAKING message
+    private func handleUserStartedSpeakingMessage() {
+        print("🗣️ DEBUG: User started speaking - triggering local speaking animation")
+        
+        let localParticipantId = callClient.participants.local.id
+        
+        // Stop any AI thinking animations first
+        setAiThinkingState(isThinking: false)
+        
+        // Trigger local speaking animation
+        updateParticipantSpeakingState(participantId: localParticipantId, isSpeaking: true, isLocal: true)
+        
+        // Handle turn logic
+        if !isUserTurn {
+            switchToUserTurn()
+        }
+    }
+    
+    /// Handle USER_STOPPED_SPEAKING message
+    private func handleUserStoppedSpeakingMessage() {
+        print("🤫 DEBUG: User stopped speaking - stopping local speaking animation")
+        
+        let localParticipantId = callClient.participants.local.id
+        
+        // Stop local speaking animation
+        updateParticipantSpeakingState(participantId: localParticipantId, isSpeaking: false, isLocal: true)
+        
+        // Start AI thinking animation after user stops speaking
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if !self.isAnyUserSpeaking() && !self.isAnyAiSpeaking() {
+                print("🧠 DEBUG: Starting AI thinking animation after user stopped speaking")
+                self.setAiThinkingState(isThinking: true)
+            }
+        }
+    }
+    
+    /// Handle BOT_STARTED_SPEAKING message
+    private func handleBotStartedSpeakingMessage() {
+        print("🤖 DEBUG: Bot started speaking - triggering remote speaking animation")
+        
+        // Stop AI thinking animations first
+        setAiThinkingState(isThinking: false)
+        
+        // Find remote participant (bot) and trigger speaking animation
+        for (participantId, participant) in participantStates {
+            if !participant.id.contains("local") && participantId != callClient.participants.local.id {
+                print("🤖 DEBUG: Triggering speaking animation for bot participant: \(participantId)")
+                updateParticipantSpeakingState(participantId: participantId, isSpeaking: true, isLocal: false)
+                break
+            }
+        }
+        
+        // Handle turn logic
+        if isUserTurn {
+            switchToAiTurn()
+        }
+    }
+    
+    /// Handle BOT_STOPPED_SPEAKING message
+    private func handleBotStoppedSpeakingMessage() {
+        print("🤖 DEBUG: Bot stopped speaking - stopping remote speaking animation")
+        
+        // Find remote participant (bot) and stop speaking animation
+        for (participantId, participant) in participantStates {
+            if !participant.id.contains("local") && participantId != callClient.participants.local.id {
+                print("🤖 DEBUG: Stopping speaking animation for bot participant: \(participantId)")
+                updateParticipantSpeakingState(participantId: participantId, isSpeaking: false, isLocal: false)
+                break
+            }
+        }
+        
+        // Switch back to user turn
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if !self.isAnyAiSpeaking() {
+                print("🔄 DEBUG: Switching to user turn after bot stopped speaking")
+                self.switchToUserTurn()
+            }
+        }
+    }
+    
+    /// Handle parsed server event and route to appropriate handler
+    private func handleServerEvent(_ event: ServerEvent) {
+        // Delegate to external listener if available
+        serverEventDelegate?.didReceiveServerEvent(event)
+        
+        // Internal handling based on event type
+        switch event.type {
+        case .animation:
+            handleAnimationEvent(from: event)
+        case .conversation:
+            handleConversationEvent(from: event)
+        case .participant:
+            handleParticipantEvent(from: event)
+        case .error:
+            handleErrorEvent(from: event)
+        case .custom:
+            handleCustomEvent(from: event)
+        }
+    }
+    
+    /// Parse and handle animation events
+    private func handleAnimationEvent(from serverEvent: ServerEvent) {
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: serverEvent.data)
+            let animationEvent = try JSONDecoder().decode(AnimationEvent.self, from: jsonData)
+            
+            print("🎨 DEBUG: Processing animation event: \(animationEvent.animationType.rawValue) for participant: \(animationEvent.participantId)")
+            
+            didReceiveAnimationEvent(animationEvent)
+        } catch {
+            print("❌ DEBUG: Failed to parse animation event: \(error)")
+        }
+    }
+    
+    /// Parse and handle conversation events
+    private func handleConversationEvent(from serverEvent: ServerEvent) {
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: serverEvent.data)
+            let conversationEvent = try JSONDecoder().decode(ConversationEvent.self, from: jsonData)
+            
+            print("💬 DEBUG: Processing conversation event: \(conversationEvent.action.rawValue) for participant: \(conversationEvent.participantId)")
+            
+            didReceiveConversationEvent(conversationEvent)
+        } catch {
+            print("❌ DEBUG: Failed to parse conversation event: \(error)")
+        }
+    }
+    
+    /// Handle participant-related events
+    private func handleParticipantEvent(from serverEvent: ServerEvent) {
+        guard let participantId = serverEvent.participantId else { return }
+        
+        // Extract participant-specific data
+        let isSpeaking = serverEvent.data["is_speaking"] as? Bool ?? false
+        let isThinking = serverEvent.data["is_thinking"] as? Bool ?? false
+        let isLocal = serverEvent.data["is_local"] as? Bool ?? false
+        
+        print("👤 DEBUG: Processing participant event for \(participantId) - speaking: \(isSpeaking), thinking: \(isThinking)")
+        
+        // Find matching participant ID
+        if let matchingParticipantId = participantStates.keys.first(where: { $0.description == participantId }) {
+            if isSpeaking {
+                updateParticipantSpeakingState(participantId: matchingParticipantId, isSpeaking: true, isLocal: isLocal)
+            } else {
+                updateParticipantSpeakingState(participantId: matchingParticipantId, isSpeaking: false, isLocal: isLocal)
+            }
+            
+            if isThinking && !isLocal {
+                setAiThinkingState(isThinking: true)
+            } else if !isThinking && !isLocal {
+                setAiThinkingState(isThinking: false)
+            }
+        }
+    }
+    
+    /// Handle error events from server
+    private func handleErrorEvent(from serverEvent: ServerEvent) {
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: serverEvent.data)
+            let errorEvent = try JSONDecoder().decode(ErrorEvent.self, from: jsonData)
+            
+            print("⚠️ DEBUG: Processing error event: \(errorEvent.errorCode) - \(errorEvent.message)")
+            
+            didReceiveErrorEvent(errorEvent)
+        } catch {
+            print("❌ DEBUG: Failed to parse error event: \(error)")
+        }
+    }
+    
+    /// Handle custom events from server
+    private func handleCustomEvent(from serverEvent: ServerEvent) {
+        print("🔧 DEBUG: Processing custom event with data: \(serverEvent.data)")
+        
+        // You can add custom event handling logic here
+        // For example, triggering specific UI updates based on custom data
+    }
+    
+    /// Enable or disable event handling
+    func setEventHandlingActive(_ isActive: Bool) {
+        isEventHandlingActive = isActive
+        print("📡 DEBUG: Event handling \(isActive ? "enabled" : "disabled")")
+    }
+    
+    // MARK: - ServerEventDelegate Implementation
+    
+    func didReceiveServerEvent(_ event: ServerEvent) {
+        print("📡 DEBUG: ServerEventDelegate - Received server event: \(event.type.rawValue)")
+        // This is called for external delegates - internal handling is done in handleServerEvent
+    }
+    
+    func didReceiveAnimationEvent(_ event: AnimationEvent) {
+        print("🎨 DEBUG: ServerEventDelegate - Received animation event: \(event.animationType.rawValue)")
+        
+        // Find the participant ID that matches the event
+        guard let participantId = findParticipantId(from: event.participantId) else {
+            print("❌ DEBUG: Could not find participant ID for animation event: \(event.participantId)")
+            return
+        }
+        
+        // Trigger animations based on the event type
+        switch event.animationType {
+        case .startSpeaking:
+            let isLocal = event.participantId.contains("local") || event.participantId == callClient.participants.local.id.description
+            updateParticipantSpeakingState(participantId: participantId, isSpeaking: true, isLocal: isLocal)
+            
+        case .stopSpeaking:
+            let isLocal = event.participantId.contains("local") || event.participantId == callClient.participants.local.id.description
+            updateParticipantSpeakingState(participantId: participantId, isSpeaking: false, isLocal: isLocal)
+            
+        case .startThinking:
+            if !event.participantId.contains("local") {
+                setAiThinkingState(isThinking: true)
+            }
+            
+        case .stopThinking:
+            if !event.participantId.contains("local") {
+                setAiThinkingState(isThinking: false)
+            }
+            
+        case .pulse:
+            triggerPulseAnimation(for: participantId, duration: event.duration ?? 1.0, intensity: event.intensity ?? 1.0)
+            
+        case .highlight:
+            triggerHighlightAnimation(for: participantId, duration: event.duration ?? 2.0)
+            
+        case .fadeIn, .fadeOut:
+            triggerFadeAnimation(for: participantId, fadeIn: event.animationType == .fadeIn, duration: event.duration ?? 0.5)
+            
+        case .custom:
+            handleCustomAnimation(for: participantId, metadata: event.metadata)
+        }
+        
+        // Delegate to external listener if available
+        serverEventDelegate?.didReceiveAnimationEvent(event)
+    }
+    
+    func didReceiveConversationEvent(_ event: ConversationEvent) {
+        print("💬 DEBUG: ServerEventDelegate - Received conversation event: \(event.action.rawValue)")
+        
+        guard let participantId = findParticipantId(from: event.participantId) else {
+            print("❌ DEBUG: Could not find participant ID for conversation event: \(event.participantId)")
+            return
+        }
+        
+        // Handle conversation events
+        switch event.action {
+        case .turnStart:
+            if event.participantId.contains("local") {
+                switchToUserTurn()
+            } else {
+                switchToAiTurn()
+            }
+            
+        case .turnEnd:
+            // Handle turn ending logic
+            print("🔄 DEBUG: Turn ended for participant: \(event.participantId)")
+            
+        case .messageReceived, .messageSent:
+            // Handle message events
+            print("📨 DEBUG: Message event for participant: \(event.participantId) - \(event.message ?? "no message")")
+            
+        case .aiResponse:
+            // Handle AI response events
+            print("🤖 DEBUG: AI response event: \(event.message ?? "no message")")
+            setAiThinkingState(isThinking: false) // Stop thinking when AI responds
+        }
+        
+        // Delegate to external listener if available
+        serverEventDelegate?.didReceiveConversationEvent(event)
+    }
+    
+    func didReceiveErrorEvent(_ event: ErrorEvent) {
+        print("⚠️ DEBUG: ServerEventDelegate - Received error event: \(event.errorCode) - \(event.message)")
+        
+        // Handle error based on severity
+        switch event.severity {
+        case .low:
+            print("ℹ️ DEBUG: Low severity error: \(event.message)")
+        case .medium:
+            print("⚠️ DEBUG: Medium severity error: \(event.message)")
+        case .high:
+            print("🚨 DEBUG: High severity error: \(event.message)")
+            showAlert(message: "Error: \(event.message)")
+        case .critical:
+            print("💥 DEBUG: Critical error: \(event.message)")
+            showAlert(message: "Critical Error: \(event.message)")
+            // Optionally handle critical errors by leaving the call
+        }
+        
+        // Delegate to external listener if available
+        serverEventDelegate?.didReceiveErrorEvent(event)
+    }
+    
+    // MARK: - Animation Helper Methods
+    
+    private func findParticipantId(from stringId: String) -> ParticipantID? {
+        // Try to find exact match first
+        if let exactMatch = participantStates.keys.first(where: { $0.description == stringId }) {
+            return exactMatch
+        }
+        
+        // Try to find partial match for local participant
+        if stringId.contains("local") {
+            return callClient.participants.local.id
+        }
+        
+        // Try to find any remote participant if no exact match
+        return participantStates.keys.first { !$0.description.contains("local") }
+    }
+    
+    private func triggerPulseAnimation(for participantId: ParticipantID, duration: TimeInterval, intensity: Float) {
+        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        
+        let pulseAnimation = CABasicAnimation(keyPath: "transform.scale")
+        pulseAnimation.duration = duration
+        pulseAnimation.fromValue = 1.0
+        pulseAnimation.toValue = 1.0 + (intensity * 0.1) // Scale based on intensity
+        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulseAnimation.autoreverses = true
+        pulseAnimation.repeatCount = 1
+        
+        videoView.layer.add(pulseAnimation, forKey: "server_pulse_animation")
+        
+        print("🫸 DEBUG: Triggered pulse animation for participant \(participantId) with intensity \(intensity)")
+    }
+    
+    private func triggerHighlightAnimation(for participantId: ParticipantID, duration: TimeInterval) {
+        let videoContainer = participantId == callClient.participants.local.id ? newLocalVideoContainer : newRemoteVideoContainer
+        
+        // Temporarily highlight the border
+        let originalBorderColor = videoContainer.layer.borderColor
+        let originalBorderWidth = videoContainer.layer.borderWidth
+        
+        videoContainer.layer.borderColor = UIColor.systemYellow.cgColor
+        videoContainer.layer.borderWidth = 6.0
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            videoContainer.layer.borderColor = originalBorderColor
+            videoContainer.layer.borderWidth = originalBorderWidth
+        }
+        
+        print("💡 DEBUG: Triggered highlight animation for participant \(participantId)")
+    }
+    
+    private func triggerFadeAnimation(for participantId: ParticipantID, fadeIn: Bool, duration: TimeInterval) {
+        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        
+        let fadeAnimation = CABasicAnimation(keyPath: "opacity")
+        fadeAnimation.duration = duration
+        fadeAnimation.fromValue = fadeIn ? 0.0 : 1.0
+        fadeAnimation.toValue = fadeIn ? 1.0 : 0.3
+        fadeAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        
+        videoView.layer.add(fadeAnimation, forKey: "server_fade_animation")
+        
+        print("🌅 DEBUG: Triggered \(fadeIn ? "fade in" : "fade out") animation for participant \(participantId)")
+    }
+    
+    private func handleCustomAnimation(for participantId: ParticipantID, metadata: [String: String]?) {
+        print("🎭 DEBUG: Handling custom animation for participant \(participantId) with metadata: \(metadata ?? [:])")
+        
+        // Implement custom animation logic based on metadata
+        guard let metadata = metadata else { return }
+        
+        if let animationType = metadata["type"] {
+            switch animationType {
+            case "bounce":
+                triggerBounceAnimation(for: participantId)
+            case "shake":
+                triggerShakeAnimation(for: participantId)
+            case "glow":
+                triggerGlowAnimation(for: participantId)
+            default:
+                print("🤷 DEBUG: Unknown custom animation type: \(animationType)")
+            }
+        }
+    }
+    
+    private func triggerBounceAnimation(for participantId: ParticipantID) {
+        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        
+        let bounceAnimation = CAKeyframeAnimation(keyPath: "transform.scale")
+        bounceAnimation.values = [1.0, 1.2, 0.9, 1.1, 1.0]
+        bounceAnimation.keyTimes = [0.0, 0.3, 0.5, 0.8, 1.0]
+        bounceAnimation.duration = 0.8
+        bounceAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        
+        videoView.layer.add(bounceAnimation, forKey: "bounce_animation")
+        
+        print("🏀 DEBUG: Triggered bounce animation for participant \(participantId)")
+    }
+    
+    private func triggerShakeAnimation(for participantId: ParticipantID) {
+        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        
+        let shakeAnimation = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        shakeAnimation.values = [0, -10, 10, -5, 5, 0]
+        shakeAnimation.keyTimes = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        shakeAnimation.duration = 0.5
+        shakeAnimation.timingFunction = CAMediaTimingFunction(name: .linear)
+        
+        videoView.layer.add(shakeAnimation, forKey: "shake_animation")
+        
+        print("📳 DEBUG: Triggered shake animation for participant \(participantId)")
+    }
+    
+    private func triggerGlowAnimation(for participantId: ParticipantID) {
+        let videoContainer = participantId == callClient.participants.local.id ? newLocalVideoContainer : newRemoteVideoContainer
+        
+        let glowAnimation = CABasicAnimation(keyPath: "shadowOpacity")
+        glowAnimation.duration = 1.0
+        glowAnimation.fromValue = 0.0
+        glowAnimation.toValue = 1.0
+        glowAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        glowAnimation.autoreverses = true
+        glowAnimation.repeatCount = 2
+        
+        videoContainer.layer.shadowColor = UIColor.cyan.cgColor
+        videoContainer.layer.shadowRadius = 20
+        videoContainer.layer.add(glowAnimation, forKey: "glow_animation")
+        
+        print("✨ DEBUG: Triggered glow animation for participant \(participantId)")
     }
     
     // MARK: - Helper Methods
@@ -1765,9 +2500,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate {
         // Disable button to prevent multiple taps
         self.leaveRoomButton.isEnabled = false
         
-        // Cleanup turn system and audio detection
+        // Cleanup turn system - audio detection already disabled
         self.cleanupTurnSystem()
-        self.stopParticipantAudioMonitoring()
         
         self.callClient.stopRecording() { [weak self] result in
             guard let self = self else { return }
@@ -2112,10 +2846,15 @@ extension DailyCallViewController: CallClientDelegate {
             self.allParticipantJoined = true
             self.initializeTurnSystem()
             
-            // Start audio level monitoring using Daily's participant audio info
-            self.startParticipantAudioMonitoring()
+            // DISABLED: Don't start audio level monitoring - rely only on server messages
+            // self.startParticipantAudioMonitoring()
             
+            // Enable server event handling
+            self.setEventHandlingActive(true)
+            
+            // DISABLED: No automatic test animations - rely only on server messages
             // Test AI animation after a delay to ensure everything is setup
+            /*
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 print("🧪 DEBUG: Testing AI animations for remote participants")
                 for (remoteId, _) in self.participantStates {
@@ -2129,6 +2868,7 @@ extension DailyCallViewController: CallClientDelegate {
                     }
                 }
             }
+            */
 
         }
     }
@@ -2270,11 +3010,13 @@ extension DailyCallViewController: CallClientDelegate {
         handleNetworkQualityChange(quality)
     }
     
-    // When active speaker changes - this provides real-time speaking detection
+    // When active speaker changes - DISABLED to rely only on server messages
     func callClient(_ callClient: CallClient, activeSpeakerChanged activeSpeaker: Participant?) {
-        print("🔊 DEBUG: Active speaker changed to: \(activeSpeaker?.id.description ?? "none")")
+        print("🔊 DEBUG: Active speaker changed to: \(activeSpeaker?.id.description ?? "none") - IGNORING (message-based control only)")
         
-        // Update all participants' speaking state based on active speaker
+        // DISABLED: Don't update speaking state based on active speaker
+        // We only want to rely on server messages for animation control
+        /*
         for (participantId, _) in participantStates {
             let isSpeaking = activeSpeaker?.id == participantId
             let isLocal = participantId == callClient.participants.local.id
@@ -2282,6 +3024,7 @@ extension DailyCallViewController: CallClientDelegate {
             print("🔊 DEBUG: Updating participant \(participantId.description) (\(isLocal ? "local" : "remote")) speaking state to: \(isSpeaking)")
             updateParticipantSpeakingState(participantId: participantId, isSpeaking: isSpeaking, isLocal: isLocal)
         }
+        */
     }
 
     func callClient(
@@ -2330,6 +3073,39 @@ extension DailyCallViewController: CallClientDelegate {
             }
             self.stopThinkingAnimation(for: participant.id)
         }
+    }
+    
+    // MARK: - App Message Handling for Server Events
+    
+    /// Listen for JSON app messages from server that contain events
+    func callClient(
+        _ callClient: CallClient,
+        appMessageAsJson jsonData: Data,
+        from participantID: ParticipantID
+    ) {
+        print("📱 DEBUG: Received JSON app message from participant: \(participantID)")
+        
+        // Convert JSON data to string and process it
+        if let jsonString = String(data: jsonData, encoding: .utf8) {
+            print("📱 DEBUG: Processing JSON app message: \(jsonString)")
+            processServerEventFromJSON(jsonString)
+        } else {
+            print("❌ DEBUG: Failed to convert JSON data to string")
+        }
+    }
+    
+    /// Public method to test animations from external code
+    func testAnimationEvent(participantId: String, animationType: AnimationEvent.AnimationType, duration: TimeInterval? = nil, intensity: Float? = nil) {
+        let animationEvent = AnimationEvent(
+            participantId: participantId,
+            animationType: animationType,
+            duration: duration,
+            intensity: intensity,
+            metadata: nil
+        )
+        
+        print("🧪 DEBUG: Testing animation event: \(animationType.rawValue) for participant: \(participantId)")
+        didReceiveAnimationEvent(animationEvent)
     }
     
 }
