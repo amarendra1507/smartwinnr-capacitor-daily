@@ -12,6 +12,8 @@ import DailySystemBroadcast
 import ReplayKit
 import AVFoundation
 
+
+
 // MARK: - Server Event Delegate Protocol
 
 protocol ServerEventDelegate: AnyObject {
@@ -439,7 +441,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newLocalParticipantLabel.translatesAutoresizingMaskIntoConstraints = false
         newContentContainerView.addSubview(newLocalParticipantLabel)
         
-        // Remote participant label - bold and right-aligned, closer to video
+        // Remote participant label (AI) - bold and right-aligned, closer to video
         newRemoteParticipantLabel.text = "Dr. Alice"
         newRemoteParticipantLabel.textAlignment = .right
         newRemoteParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
@@ -525,7 +527,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             newRemoteParticipantLabel.topAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: 4),
             newRemoteParticipantLabel.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor),
             newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor, constant: -8), // 8pt right padding
-            newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 20),
+            newRemoteParticipantLabel.heightAnchor.constraint(equalToConstant: 20), // Standard height for text label
             
             // Video views inside their containers
             newLocalVideoView.topAnchor.constraint(equalTo: newLocalVideoContainer.topAnchor, constant: 4),
@@ -897,6 +899,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         }
     }
     
+
+    
     private func isAnyAiSpeaking() -> Bool {
         return participantStates.values.contains { participant in
             !participant.id.contains("local") && participant.isSpeaking
@@ -1039,7 +1043,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         }
         
         // Create thinking dots container (smaller for old UI)
-        let dotsContainer = createThinkingDotsContainer(dotSize: 6, spacing: 6)
+        let dotsContainer = createEnhancedDotsContainer()
         dotsContainer.accessibilityIdentifier = "thinking_\(participantId)"
         
         videoView.addSubview(dotsContainer)
@@ -1047,8 +1051,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         NSLayoutConstraint.activate([
             dotsContainer.centerXAnchor.constraint(equalTo: videoView.centerXAnchor),
             dotsContainer.centerYAnchor.constraint(equalTo: videoView.centerYAnchor),
-            dotsContainer.heightAnchor.constraint(equalToConstant: 20),
-            dotsContainer.widthAnchor.constraint(equalToConstant: 22) // 6*3 + 2*2 = 22
+            dotsContainer.heightAnchor.constraint(equalToConstant: 24),
+            dotsContainer.widthAnchor.constraint(equalToConstant: 60) // 8*5 + 6*4 = 64, but constrain to 60
         ])
     }
     
@@ -1062,42 +1066,120 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             return
         }
         
-        // Create thinking dots container with larger, more visible dots
-        let dotsContainer = createThinkingDotsContainer(dotSize: 6, spacing: 4)
-        dotsContainer.accessibilityIdentifier = "thinking_\(participantId)"
+        // Create enhanced thinking animation container with bulb icon and more dots
+        let animationContainer = createEnhancedThinkingAnimationContainer()
+        animationContainer.accessibilityIdentifier = "thinking_\(participantId)"
         
         // Add to the same container as the video views
-        newContentContainerView.addSubview(dotsContainer)
+        newContentContainerView.addSubview(animationContainer)
         
         // Position on the same line as AI name label, with left padding from AI video edge
         NSLayoutConstraint.activate([
-            dotsContainer.centerYAnchor.constraint(equalTo: newRemoteParticipantLabel.centerYAnchor),
-            dotsContainer.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 8), // 8pt left padding
-            dotsContainer.heightAnchor.constraint(equalToConstant: 20),
-            dotsContainer.widthAnchor.constraint(equalToConstant: 26) // 6*3 + 4*2 = 26
+            animationContainer.centerYAnchor.constraint(equalTo: newRemoteParticipantLabel.centerYAnchor),
+            animationContainer.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor, constant: 8), // 8pt left padding
+            animationContainer.heightAnchor.constraint(equalToConstant: 32),
+            animationContainer.widthAnchor.constraint(equalToConstant: 120) // Wider to accommodate bulb + dots
         ])
         
-        print("🧠 DEBUG: Thinking dots positioned on same line as AI name, to the left")
+        print("🧠 DEBUG: Enhanced thinking animation positioned on same line as AI name, to the left")
     }
     
-    private func createThinkingDotsContainer(dotSize: CGFloat, spacing: CGFloat) -> UIView {
-        // Create a simple container view instead of StackView to avoid constraint conflicts
+    private func createEnhancedThinkingAnimationContainer() -> UIView {
+        // Create a container view for the entire thinking animation
+        let animationContainer = UIView()
+        animationContainer.translatesAutoresizingMaskIntoConstraints = false
+        animationContainer.backgroundColor = UIColor.clear
+        
+        // Create bulb icon container
+        let bulbContainer = UIView()
+        bulbContainer.translatesAutoresizingMaskIntoConstraints = false
+        bulbContainer.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.9)
+        bulbContainer.layer.cornerRadius = 16
+        bulbContainer.layer.shadowColor = UIColor.systemYellow.cgColor
+        bulbContainer.layer.shadowRadius = 8
+        bulbContainer.layer.shadowOpacity = 0.6
+        bulbContainer.layer.shadowOffset = CGSize.zero
+        
+        // Create bulb icon using SF Symbols
+        let bulbImageView = UIImageView()
+        bulbImageView.image = UIImage(systemName: "lightbulb.fill")
+        bulbImageView.tintColor = UIColor.systemOrange
+        bulbImageView.contentMode = .scaleAspectFit
+        bulbImageView.translatesAutoresizingMaskIntoConstraints = false
+        
+        bulbContainer.addSubview(bulbImageView)
+        
+        // Create enhanced dots container with more dots
+        let dotsContainer = createEnhancedDotsContainer()
+        
+        // Add both containers to the main container
+        animationContainer.addSubview(bulbContainer)
+        animationContainer.addSubview(dotsContainer)
+        
+        // Set up constraints
+        NSLayoutConstraint.activate([
+            // Bulb container constraints
+            bulbContainer.leadingAnchor.constraint(equalTo: animationContainer.leadingAnchor),
+            bulbContainer.centerYAnchor.constraint(equalTo: animationContainer.centerYAnchor),
+            bulbContainer.widthAnchor.constraint(equalToConstant: 32),
+            bulbContainer.heightAnchor.constraint(equalToConstant: 32),
+            
+            // Bulb icon constraints
+            bulbImageView.centerXAnchor.constraint(equalTo: bulbContainer.centerXAnchor),
+            bulbImageView.centerYAnchor.constraint(equalTo: bulbContainer.centerYAnchor),
+            bulbImageView.widthAnchor.constraint(equalToConstant: 20),
+            bulbImageView.heightAnchor.constraint(equalToConstant: 20),
+            
+            // Dots container constraints
+            dotsContainer.leadingAnchor.constraint(equalTo: bulbContainer.trailingAnchor, constant: 12),
+            dotsContainer.centerYAnchor.constraint(equalTo: animationContainer.centerYAnchor),
+            dotsContainer.trailingAnchor.constraint(equalTo: animationContainer.trailingAnchor),
+            dotsContainer.heightAnchor.constraint(equalToConstant: 24)
+        ])
+        
+        // Start bulb pulsing animation
+        startBulbPulsingAnimation(bulbContainer)
+        
+        return animationContainer
+    }
+    
+    private func createEnhancedDotsContainer() -> UIView {
+        // Create a container view for the enhanced dots
         let dotsContainer = UIView()
         dotsContainer.translatesAutoresizingMaskIntoConstraints = false
         dotsContainer.backgroundColor = UIColor.clear
         
-        let totalWidth = (dotSize * 3) + (spacing * 2)
+        // Enhanced dot configuration - bigger dots with more variety
+        let dotSize: CGFloat = 8.0
+        let spacing: CGFloat = 6.0
+        let numberOfDots = 5 // Increased from 3 to 5
         
-        for i in 0..<3 {
+        for i in 0..<numberOfDots {
             let dot = UIView()
-            dot.backgroundColor = UIColor.systemBlue // Blue dots for AI thinking
+            
+            // Vary dot colors for visual interest (iOS 13+ compatible)
+            let dotColors: [UIColor] = [
+                UIColor.systemBlue,
+                UIColor(red: 0.0, green: 0.8, blue: 0.8, alpha: 1.0), // Custom cyan
+                UIColor.systemTeal,
+                UIColor(red: 0.3, green: 0.0, blue: 0.5, alpha: 1.0), // Custom indigo
+                UIColor.systemPurple
+            ]
+            dot.backgroundColor = dotColors[i % dotColors.count]
+            
             dot.layer.cornerRadius = dotSize / 2
             dot.translatesAutoresizingMaskIntoConstraints = false
-            dot.alpha = 0.3 // Start with low opacity
+            dot.alpha = 0.4 // Start with low opacity
+            
+            // Add subtle shadow to dots
+            dot.layer.shadowColor = dot.backgroundColor?.cgColor
+            dot.layer.shadowRadius = 3
+            dot.layer.shadowOpacity = 0.6
+            dot.layer.shadowOffset = CGSize.zero
             
             dotsContainer.addSubview(dot)
             
-            // Position each dot manually
+            // Position each dot with proper spacing
             let xPosition = CGFloat(i) * (dotSize + spacing)
             NSLayoutConstraint.activate([
                 dot.widthAnchor.constraint(equalToConstant: dotSize),
@@ -1106,13 +1188,67 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
                 dot.centerYAnchor.constraint(equalTo: dotsContainer.centerYAnchor)
             ])
             
-            // Start animation immediately after a short delay
+            // Start enhanced animation with varied timing
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.animateDot(dot, delay: Double(i) * 0.4)
+                self.animateEnhancedDot(dot, delay: Double(i) * 0.3, dotIndex: i)
             }
         }
         
         return dotsContainer
+    }
+    
+    private func startBulbPulsingAnimation(_ bulbContainer: UIView) {
+        // Create a pulsing animation for the bulb
+        let pulseAnimation = CABasicAnimation(keyPath: "transform.scale")
+        pulseAnimation.duration = 2.0
+        pulseAnimation.fromValue = 1.0
+        pulseAnimation.toValue = 1.1
+        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulseAnimation.autoreverses = true
+        pulseAnimation.repeatCount = .infinity
+        
+        bulbContainer.layer.add(pulseAnimation, forKey: "bulb_pulse")
+        
+        // Add glow animation
+        let glowAnimation = CABasicAnimation(keyPath: "shadowOpacity")
+        glowAnimation.duration = 2.0
+        glowAnimation.fromValue = 0.3
+        glowAnimation.toValue = 0.8
+        glowAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        glowAnimation.autoreverses = true
+        glowAnimation.repeatCount = .infinity
+        
+        bulbContainer.layer.add(glowAnimation, forKey: "bulb_glow")
+    }
+    
+    private func animateEnhancedDot(_ dot: UIView, delay: TimeInterval, dotIndex: Int) {
+        // Create a more complex animation sequence for each dot
+        let baseDuration = 1.5
+        let delayMultiplier = Double(dotIndex) * 0.2
+        
+        // Scale animation
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.duration = baseDuration
+        scaleAnimation.fromValue = 0.8
+        scaleAnimation.toValue = 1.3
+        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        scaleAnimation.autoreverses = true
+        scaleAnimation.repeatCount = .infinity
+        scaleAnimation.beginTime = CACurrentMediaTime() + delay + delayMultiplier
+        
+        // Opacity animation
+        let opacityAnimation = CABasicAnimation(keyPath: "opacity")
+        opacityAnimation.duration = baseDuration
+        opacityAnimation.fromValue = 0.3
+        opacityAnimation.toValue = 1.0
+        opacityAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        opacityAnimation.autoreverses = true
+        opacityAnimation.repeatCount = .infinity
+        opacityAnimation.beginTime = CACurrentMediaTime() + delay + delayMultiplier
+        
+        // Add both animations
+        dot.layer.add(scaleAnimation, forKey: "enhanced_scale_\(dotIndex)")
+        dot.layer.add(opacityAnimation, forKey: "enhanced_opacity_\(dotIndex)")
     }
     
     private func animateDot(_ dot: UIView, delay: TimeInterval) {
@@ -1131,11 +1267,15 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         if isNewUIInitialized {
             for subview in newContentContainerView.subviews {
                 if subview.accessibilityIdentifier == "thinking_\(participantId)" {
+                    // Stop all animations before removing
+                    subview.layer.removeAllAnimations()
+                    
                     UIView.animate(withDuration: 0.3, animations: {
                         subview.alpha = 0
+                        subview.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
                     }) { _ in
                         subview.removeFromSuperview()
-                        print("🧠 DEBUG: Removed thinking dots from new UI")
+                        print("🧠 DEBUG: Removed enhanced thinking animation from new UI")
                     }
                 }
             }
@@ -1147,6 +1287,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         
         for subview in videoView.subviews {
             if subview.accessibilityIdentifier == "thinking_\(participantId)" {
+                subview.layer.removeAllAnimations()
                 UIView.animate(withDuration: 0.3, animations: {
                     subview.alpha = 0
                 }) { _ in
@@ -1196,6 +1337,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // Stop thinking animation when AI starts speaking
         setAiThinkingState(isThinking: false)
         
+
+        
         // Record the turn
         recordTurn(speaker: "ai", action: "started", speakerName: coachName)
     }
@@ -1208,6 +1351,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             
             // Record the turn completion
             recordTurn(speaker: "ai", action: "stopped", speakerName: coachName, duration: speakingDuration)
+            
+
             
             // Switch back to user turn
             switchToUserTurn()
@@ -3127,6 +3272,25 @@ extension DailyCallViewController: CallClientDelegate {
         
         print("🧪 DEBUG: Testing animation event: \(animationType.rawValue) for participant: \(participantId)")
         didReceiveAnimationEvent(animationEvent)
+    }
+    
+    /// Public method to test enhanced thinking animations
+    func testEnhancedThinkingAnimation() {
+        print("🧪 DEBUG: Testing enhanced thinking animation")
+        
+        // Find any remote participant to test with
+        for (participantId, participant) in participantStates {
+            if !participant.id.contains("local") && participantId != callClient.participants.local.id {
+                print("🧪 DEBUG: Testing enhanced thinking animation for participant: \(participantId)")
+                startThinkingAnimation(for: participantId)
+                
+                // Stop after 5 seconds for testing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                    self.stopThinkingAnimation(for: participantId)
+                }
+                break
+            }
+        }
     }
     
 }
