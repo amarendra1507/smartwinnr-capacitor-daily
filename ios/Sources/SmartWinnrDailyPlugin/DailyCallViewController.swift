@@ -399,20 +399,20 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newRemoteVideoContainer.layer.shadowOpacity = 0.1
         newRemoteVideoContainer.translatesAutoresizingMaskIntoConstraints = false
         
-        // Setup local video view with consistent sizing
+        // Setup local video view with aspect-fit to prevent cropping
         newLocalVideoView.backgroundColor = .black
         newLocalVideoView.layer.cornerRadius = 16
         newLocalVideoView.layer.masksToBounds = true
-        newLocalVideoView.videoScaleMode = .fill
-        newLocalVideoView.contentMode = .scaleAspectFill
+        newLocalVideoView.videoScaleMode = .fit
+        newLocalVideoView.contentMode = .scaleAspectFit
         newLocalVideoView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Setup remote video view with consistent sizing
+        // Setup remote video view with aspect-fit to prevent cropping
         newRemoteVideoView.backgroundColor = .black
         newRemoteVideoView.layer.cornerRadius = 16
         newRemoteVideoView.layer.masksToBounds = true
-        newRemoteVideoView.videoScaleMode = .fill
-        newRemoteVideoView.contentMode = .scaleAspectFill
+        newRemoteVideoView.videoScaleMode = .fit
+        newRemoteVideoView.contentMode = .scaleAspectFit
         newRemoteVideoView.translatesAutoresizingMaskIntoConstraints = false
         
         // Add video views to their containers
@@ -512,9 +512,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             newMainStackView.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor, constant: -10),
             newMainStackView.topAnchor.constraint(greaterThanOrEqualTo: newTimerLabel.bottomAnchor, constant: 20),
             
-            // Fixed aspect ratio for video containers to prevent sizing issues
-            newLocalVideoContainer.heightAnchor.constraint(equalTo: newLocalVideoContainer.widthAnchor, multiplier: 0.75),
-            newRemoteVideoContainer.heightAnchor.constraint(equalTo: newRemoteVideoContainer.widthAnchor, multiplier: 0.75),
+            // Initial aspect ratio - will be updated by orientation handler
+            // (Dynamic constraints added in updateVideoAspectRatio method)
             
             // Participant labels positioned below each video container with right padding
             newLocalParticipantLabel.topAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: 4),
@@ -689,16 +688,38 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
                          view.frame.width > view.frame.height
         
         if isLandscape {
-            // Landscape: horizontal layout
+            // Landscape: horizontal layout with tighter aspect ratio
             newMainStackView.axis = .horizontal
             newMainStackView.spacing = 20
-            print("🔄 DEBUG: Layout set to HORIZONTAL (landscape)")
+            updateVideoAspectRatio(multiplier: 0.75) // 4:3 aspect ratio for landscape
+            print("🔄 DEBUG: Layout set to HORIZONTAL (landscape) with 4:3 aspect")
         } else {
-            // Portrait: vertical layout
+            // Portrait: vertical layout with more flexible aspect ratio
             newMainStackView.axis = .vertical
             newMainStackView.spacing = 30
-            print("🔄 DEBUG: Layout set to VERTICAL (portrait)")
+            updateVideoAspectRatio(multiplier: 0.6) // More square-like for portrait
+            print("🔄 DEBUG: Layout set to VERTICAL (portrait) with 3:5 aspect")
         }
+    }
+    
+    private func updateVideoAspectRatio(multiplier: CGFloat) {
+        // Remove existing aspect ratio constraints if any
+        newLocalVideoContainer.constraints.forEach { constraint in
+            if constraint.firstAttribute == .height && constraint.secondAttribute == .width {
+                newLocalVideoContainer.removeConstraint(constraint)
+            }
+        }
+        newRemoteVideoContainer.constraints.forEach { constraint in
+            if constraint.firstAttribute == .height && constraint.secondAttribute == .width {
+                newRemoteVideoContainer.removeConstraint(constraint)
+            }
+        }
+        
+        // Add new aspect ratio constraints
+        NSLayoutConstraint.activate([
+            newLocalVideoContainer.heightAnchor.constraint(equalTo: newLocalVideoContainer.widthAnchor, multiplier: multiplier),
+            newRemoteVideoContainer.heightAnchor.constraint(equalTo: newRemoteVideoContainer.widthAnchor, multiplier: multiplier)
+        ])
     }
     
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
