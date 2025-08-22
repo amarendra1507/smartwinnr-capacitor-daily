@@ -846,6 +846,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             // Started speaking
             print("🗣️ DEBUG: \(isLocal ? "User" : "AI") started speaking: \(participantId)")
             if isLocal {
+                // CRITICAL: When user starts speaking, immediately clear any AI speaking states
+                if isAnyAiSpeaking() {
+                    print("🔄 DEBUG: User started speaking while AI was speaking - clearing AI states")
+                    forceStopBotSpeakingAnimations()
+                }
                 handleUserStartedSpeaking(participantId: participantId)
             } else {
                 handleAiStartedSpeaking(participantId: participantId)
@@ -910,6 +915,39 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private func isAnyUserSpeaking() -> Bool {
         return participantStates.values.contains { participant in
             participant.id.contains("local") && participant.isSpeaking
+        }
+    }
+    
+    /// Force stop any lingering bot speaking animations
+    /// This is called when the user starts speaking to ensure clean state
+    private func forceStopBotSpeakingAnimations() {
+        print("🔄 DEBUG: Force stopping any lingering bot speaking animations")
+        
+        // Find all remote (AI) participants and force stop their speaking state
+        for (participantId, var participant) in participantStates {
+            let isLocalParticipant = participantId == callClient.participants.local.id
+            let isAiParticipant = !participant.id.contains("local") && !isLocalParticipant
+            
+            if isAiParticipant && participant.isSpeaking {
+                print("🔄 DEBUG: Force stopping speaking animation for AI participant: \(participantId)")
+                
+                // Update participant state
+                participant.isSpeaking = false
+                participant.isActiveSpeaker = false
+                participantStates[participantId] = participant
+                
+                // Force stop visual speaking indicators
+                updateSpeakingIndicator(for: participantId, isSpeaking: false)
+                
+                // Also stop any thinking animations that might be stuck
+                stopThinkingAnimation(for: participantId)
+            }
+        }
+        
+        // Additional safety check: ensure no AI speaking states remain
+        let remainingAiSpeaking = isAnyAiSpeaking()
+        if remainingAiSpeaking {
+            print("⚠️ DEBUG: Warning - AI speaking state still detected after force stop")
         }
     }
     
@@ -1303,6 +1341,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private func handleUserStartedSpeaking(participantId: ParticipantID) {
         guard isUserTurn else { return }
         
+        // CRITICAL: Force stop any lingering bot speaking animations when user starts speaking
+        forceStopBotSpeakingAnimations()
+        
         var participant = participantStates[participantId] ?? DailyParticipant(id: participantId.description, name: userName)
         participant.lastSpokenAt = Date().timeIntervalSince1970
         participant.turnNumber = currentTurn
@@ -1375,6 +1416,12 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private func switchToUserTurn() {
         isUserTurn = true
         currentTurn += 1
+        
+        // CRITICAL: Ensure any lingering AI speaking animations are stopped when switching to user turn
+        if isAnyAiSpeaking() {
+            print("🔄 DEBUG: Switching to user turn while AI is speaking - clearing AI states")
+            forceStopBotSpeakingAnimations()
+        }
         
         print("User turn started - turn \(currentTurn)")
     }
@@ -1511,6 +1558,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         print("🗣️ DEBUG: User started speaking - triggering local speaking animation")
         
         let localParticipantId = callClient.participants.local.id
+        
+        // CRITICAL: Force stop any lingering bot speaking animations when user starts speaking
+        forceStopBotSpeakingAnimations()
         
         // Stop any AI thinking animations first
         setAiThinkingState(isThinking: false)
@@ -3291,6 +3341,30 @@ extension DailyCallViewController: CallClientDelegate {
                 break
             }
         }
+    }
+    
+    /// Public method to force cleanup any stuck animations
+    /// Call this if you notice animations are not behaving correctly
+    func forceCleanupAnimations() {
+        print("🧹 DEBUG: Force cleaning up all animations")
+        
+        // Stop all thinking animations
+        for (participantId, _) in participantStates {
+            stopThinkingAnimation(for: participantId)
+        }
+        
+        // Force stop any AI speaking animations
+        forceStopBotSpeakingAnimations()
+        
+        // Reset all participant states to clean state
+        for (participantId, var participant) in participantStates {
+            participant.isSpeaking = false
+            participant.isThinking = false
+            participant.isActiveSpeaker = false
+            participantStates[participantId] = participant
+        }
+        
+        print("🧹 DEBUG: Animation cleanup completed")
     }
     
 }
