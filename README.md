@@ -15,6 +15,7 @@ npx cap sync
 
 * [`echo(...)`](#echo)
 * [`joinCall(...)`](#joincall)
+* [`endCall()`](#endcall)
 * [`addListener('onJoined', ...)`](#addlisteneronjoined-)
 * [`addListener('onLeft', ...)`](#addlisteneronleft-)
 * [Interfaces](#interfaces)
@@ -50,6 +51,17 @@ joinCall(options: { url: string; token: string; }) => Promise<{ isCallJoined: bo
 | **`options`** | <code>{ url: string; token: string; }</code> |
 
 **Returns:** <code>Promise&lt;{ isCallJoined: boolean; }&gt;</code>
+
+--------------------
+
+
+### endCall()
+
+```typescript
+endCall() => Promise<{ isCallEnded: boolean; }>
+```
+
+**Returns:** <code>Promise&lt;{ isCallEnded: boolean; }&gt;</code>
 
 --------------------
 

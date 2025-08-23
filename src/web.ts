@@ -11,9 +11,13 @@ export class SmartWinnrDailyWeb
     return options;
   }
 
-  async joinCall(options: { url: string }): Promise<{ isCallJoined: boolean }> {
+  async joinCall(options: { url: string, token: string }): Promise<{ isCallJoined: boolean }> {
     console.log('JOIN_CALL', options);
     return {isCallJoined: true};
   }
 
+  async endCall(): Promise<{ isCallEnded: boolean }> {
+    console.log('END_CALL');
+    return {isCallEnded: true};
+  }
 }

@@ -8,7 +8,6 @@
 import Foundation
 import UIKit
 import Daily
-import DailySystemBroadcast
 import ReplayKit
 import AVFoundation
 
@@ -241,8 +240,7 @@ class AudioAnalyzer {
 }
 
 class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEventDelegate {
-    @IBOutlet private weak var systemBroadcastPickerView: UIView!
-    
+
     // MARK: - UI Components to match the design (New UI Elements)
     private lazy var newContentContainerView = UIView()
     private lazy var newCoachingTitleLabel = UILabel()
@@ -2316,18 +2314,6 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // Setup CallClient delegate
         self.callClient.delegate = self
 
-            // Safely handle the broadcast picker view
-        if let broadcastPickerView = self.systemBroadcastPickerView as? RPSystemBroadcastPickerView {
-            broadcastPickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
-            broadcastPickerView.showsMicrophoneButton = false
-        } else {
-            // Create a new broadcast picker view if the outlet is not connected
-            let pickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-            pickerView.preferredExtension = "group.com.smartwinnr.daily.broadcast"
-            pickerView.showsMicrophoneButton = false
-            self.systemBroadcastPickerView = pickerView
-        }
-        
         // Create buttons
         createButtons()
         
@@ -2490,14 +2476,6 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     }
     
     func createButtons() {
-
-        // Replace the existing broadcast picker creation with:
-//        if let picker = DailyBroadcastHelper.shared.setupBroadcastPickerView() {
-//            broadcastPickerView = picker
-//            broadcastPickerView.translatesAutoresizingMaskIntoConstraints = false
-//            self.localVideoView.addSubview(broadcastPickerView)
-//        }
-
         // Create bottom container view
         bottomView = UIView()
         bottomView.translatesAutoresizingMaskIntoConstraints = false
