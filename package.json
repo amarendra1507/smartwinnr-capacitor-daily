@@ -1,6 +1,6 @@
 {
   "name": "smartwinnr-capacitor-daily",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "A capacitor plugin for ionic app which allows to use the daily.co call functionality",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
