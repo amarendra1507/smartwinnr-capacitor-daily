@@ -27,10 +27,24 @@ public class SmartWinnrDailyPlugin extends Plugin {
 
     @PluginMethod
     public void enable(PluginCall call) {
+        String color = call.getString("color");
+        
         getActivity()
             .runOnUiThread(() -> {
                 try {
                     implementation.enable();
+                    
+                    // If color is provided, use it; otherwise use the default from config
+                    if (color != null) {
+                        implementation.setBackgroundColor(color);
+                    } else {
+                        // Use the default background color from config
+                        SmartWinnrDailyConfig config = getSmartWinnrDailyConfig();
+                        if (config.getBackgroundColor() != null) {
+                            implementation.setBackgroundColor(config.getBackgroundColor());
+                        }
+                    }
+                    
                     call.resolve();
                 } catch (Exception exception) {
                     call.reject(exception.getMessage());
