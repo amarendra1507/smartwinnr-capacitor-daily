@@ -6,17 +6,95 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import android.graphics.Color;
+import android.view.ViewGroup;
+import com.getcapacitor.Logger;
+
 @CapacitorPlugin(name = "SmartWinnrDaily")
 public class SmartWinnrDailyPlugin extends Plugin {
 
-    private SmartWinnrDaily implementation = new SmartWinnrDaily();
+    private static final String ERROR_COLOR_MISSING = "color must be provided.";
+    private static final String TAG = "SmartWinnrDaily";
+
+
+    private SmartWinnrDaily implementation;
+
+    @Override
+    public void load() {
+        SmartWinnrDailyConfig config = getSmartWinnrDailyConfig();
+        implementation = new SmartWinnrDaily(this, config);
+    }
 
     @PluginMethod
-    public void echo(PluginCall call) {
-        String value = call.getString("value");
+    public void enable(PluginCall call) {
+        getActivity()
+            .runOnUiThread(() -> {
+                try {
+                    implementation.enable();
+                    call.resolve();
+                } catch (Exception exception) {
+                    call.reject(exception.getMessage());
+                }
+            });
+    }
 
-        JSObject ret = new JSObject();
-        ret.put("value", implementation.echo(value));
-        call.resolve(ret);
+    @PluginMethod
+    public void disable(PluginCall call) {
+        getActivity()
+            .runOnUiThread(() -> {
+                try {
+                    implementation.disable();
+                    call.resolve();
+                } catch (Exception exception) {
+                    call.reject(exception.getMessage());
+                }
+            });
+    }
+
+    @PluginMethod
+    public void getInsets(PluginCall call) {
+        try {
+            ViewGroup.MarginLayoutParams insets = implementation.getInsets();
+            JSObject result = new JSObject();
+            result.put("bottom", insets.bottomMargin);
+            result.put("left", insets.leftMargin);
+            result.put("right", insets.rightMargin);
+            result.put("top", insets.topMargin);
+            call.resolve(result);
+        } catch (Exception exception) {
+            call.reject(exception.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setBackgroundColor(PluginCall call) {
+        String color = call.getString("color");
+        if (color == null) {
+            call.reject(ERROR_COLOR_MISSING);
+            return;
+        }
+        getActivity()
+            .runOnUiThread(() -> {
+                try {
+                    implementation.setBackgroundColor(color);
+                    call.resolve();
+                } catch (Exception exception) {
+                    call.reject(exception.getMessage());
+                }
+            });
+    }
+
+    private SmartWinnrDailyConfig getSmartWinnrDailyConfig() {
+        SmartWinnrDailyConfig config = new SmartWinnrDailyConfig();
+
+        try {
+            String backgroundColor = getConfig().getString("backgroundColor");
+            if (backgroundColor != null) {
+                config.setBackgroundColor(Color.parseColor(backgroundColor));
+            }
+        } catch (Exception exception) {
+            Logger.error(TAG, "Set config failed.", exception);
+        }
+        return config;
     }
 }
