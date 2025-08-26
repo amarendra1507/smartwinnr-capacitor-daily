@@ -40,9 +40,9 @@ public class SmartWinnrDailyPlugin extends Plugin {
                     } else {
                         // Use the default background color from config
                         SmartWinnrDailyConfig config = getSmartWinnrDailyConfig();
-                        if (config.getBackgroundColor() != null) {
-                            implementation.setBackgroundColor(config.getBackgroundColor());
-                        }
+                        // Convert the int color to hex string for the setBackgroundColor method
+                        String defaultColorHex = String.format("#%06X", (0xFFFFFF & config.getBackgroundColor()));
+                        implementation.setBackgroundColor(defaultColorHex);
                     }
                     
                     call.resolve();
