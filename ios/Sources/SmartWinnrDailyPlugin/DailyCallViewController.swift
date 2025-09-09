@@ -431,7 +431,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     
         private func setupParticipantLabels() {
         // Local participant label - bold and right-aligned, closer to video
-        newLocalParticipantLabel.text = "Beverley Flow Admin"
+        newLocalParticipantLabel.text = self.userName
         newLocalParticipantLabel.textAlignment = .right
         newLocalParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
         newLocalParticipantLabel.textColor = .label
@@ -440,7 +440,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newContentContainerView.addSubview(newLocalParticipantLabel)
         
         // Remote participant label (AI) - bold and right-aligned, closer to video
-        newRemoteParticipantLabel.text = "Dr. Alice"
+        newRemoteParticipantLabel.text = self.coachName
         newRemoteParticipantLabel.textAlignment = .right
         newRemoteParticipantLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
         newRemoteParticipantLabel.textColor = .label
