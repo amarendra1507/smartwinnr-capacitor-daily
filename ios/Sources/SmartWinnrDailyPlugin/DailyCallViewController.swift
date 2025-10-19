@@ -583,11 +583,12 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         self.cleanupTurnSystem()
         
         // Stop recording if it's running
-        self.callClient.stopRecording { result in
+        self.callClient.stopRecording { [weak self] result in
+            guard let self = self else { return }
             
             // Re-enable button in case of failure
-            DispatchQueue.main.async {
-                self.newEndRolePlayButton.isEnabled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.newEndRolePlayButton.isEnabled = true
             }
             
             switch result {
@@ -598,22 +599,32 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
                     self.onRecordingStopped?(recordingId, stopTime)
                 }
                 
-                // Remove local participant and leave call
-                let participants = self.callClient.participants
-                let localParticipant = participants.local
-                self.removeParticipantView(participantId: localParticipant.id)
-                self.callClient.leave() { result in
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.leave()
+                // Remove local participant and leave call - ensure on main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    let participants = self.callClient.participants
+                    let localParticipant = participants.local
+                    self.removeParticipantView(participantId: localParticipant.id)
+                    
+                    self.callClient.leave { [weak self] result in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self = self else { return }
+                            self.timer?.invalidate()
+                            self.timer = nil
+                            self.leave()
+                        }
+                    }
                 }
             case .failure(let error):
                 print("Failed to stop recording: \(error.localizedDescription)")
                 self.onRecordingError?(error.localizedDescription)
-                self.callClient.leave() { result in
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.leave()
+                self.callClient.leave { [weak self] result in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.timer?.invalidate()
+                        self.timer = nil
+                        self.leave()
+                    }
                 }
             }
         }
@@ -1473,8 +1484,10 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         }
         audioAnalyzers.removeAll()
         
-        // Stop audio monitoring
-        stopParticipantAudioMonitoring()
+        // Stop audio monitoring - ensure on main thread
+        DispatchQueue.main.async { [weak self] in
+            self?.stopParticipantAudioMonitoring()
+        }
     }
     
     // MARK: - AudioAnalyzerDelegate
@@ -2214,14 +2227,57 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         fatalError("init(coder:) has not been implemented")
     }
     
+    deinit {
+        print("🧹 DailyCallViewController deinit - cleaning up resources")
+        
+        // Invalidate timer on main thread
+        DispatchQueue.main.async { [weak timer] in
+            timer?.invalidate()
+        }
+        
+        // Stop audio monitoring
+        audioMonitoringTimer?.invalidate()
+        audioMonitoringTimer = nil
+        
+        // Stop all audio analyzers
+        for (_, analyzer) in audioAnalyzers {
+            analyzer.stopAnalyzing()
+        }
+        audioAnalyzers.removeAll()
+        
+        // Clear all state
+        participantStates.removeAll()
+        speakingIndicators.removeAll()
+        videoPulseOverlays.removeAll()
+        thinkingAnimations.removeAll()
+        videoViews.removeAll()
+        
+        print("🧹 DailyCallViewController deinit completed")
+    }
+    
     func leave() {
-        DispatchQueue.main.async {
-            self.dismiss(animated: true) {
-                self.onDismiss?()
+        // Ensure leave is only called once
+        guard !self.view.window.isNil else {
+            print("⚠️ View already dismissed, skipping leave()")
+            return
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Additional safety check before dismiss
+            guard self.presentingViewController != nil else {
+                print("⚠️ No presenting view controller, calling left() directly")
+                self.left()
+                return
+            }
+            
+            self.dismiss(animated: true) { [weak self] in
+                self?.onDismiss?()
             }
         }
         
-        self.left();
+        self.left()
     }
     
     func joined() {
@@ -2701,8 +2757,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             guard let self = self else { return }
             
             // Re-enable button in case of failure
-            DispatchQueue.main.async {
-                self.leaveRoomButton.isEnabled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.leaveRoomButton.isEnabled = true
             }
             
             switch result {
@@ -2712,21 +2768,32 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
                     self.onRecordingStopped?(recordingId, stopTime)
                 }
                 
-                let participants = self.callClient.participants
-                let localParticipant = participants.local
-                self.removeParticipantView(participantId: localParticipant.id)
-                self.callClient.leave() { result in
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.leave()
+                // Remove local participant and leave call - ensure on main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    let participants = self.callClient.participants
+                    let localParticipant = participants.local
+                    self.removeParticipantView(participantId: localParticipant.id)
+                    
+                    self.callClient.leave { [weak self] result in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self = self else { return }
+                            self.timer?.invalidate()
+                            self.timer = nil
+                            self.leave()
+                        }
+                    }
                 }
             case .failure(let error):
                 print("Failed to stop recording: \(error.localizedDescription)")
                 self.onRecordingError?(error.localizedDescription)
-                self.callClient.leave() { result in
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.leave()
+                self.callClient.leave { [weak self] result in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.timer?.invalidate()
+                        self.timer = nil
+                        self.leave()
+                    }
                 }
             }
         }
