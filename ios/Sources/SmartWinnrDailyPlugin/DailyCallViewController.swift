@@ -2256,8 +2256,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     }
     
     func leave() {
-        // Ensure leave is only called once
-        guard !self.view.window.isNil else {
+        // Ensure leave is only called once - check if view is still in window hierarchy
+        guard self.view.window != nil else {
             print("⚠️ View already dismissed, skipping leave()")
             return
         }
