@@ -918,26 +918,27 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // MARK: - Broadcast System Picker
     private func showBroadcastSystemPicker() {
         // Create and configure the broadcast picker view
-        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-        // Set the first available or let system show all if none match
-        picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
-        picker.showsMicrophoneButton = false
+        let systemBroadcastPickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        systemBroadcastPickerView.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
+        // Only set a specific extension if provided by the host app; otherwise, let iOS show the list.
+        // picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
+        systemBroadcastPickerView.showsMicrophoneButton = false
         
         // Add to view hierarchy (hidden, we'll trigger it programmatically)
-        picker.isHidden = true
-        view.addSubview(picker)
+        // picker.isHidden = true
+        // view.addSubview(picker)
         
         // Store reference to prevent deallocation
-        self.systemBroadcastPickerView = picker
+        // self.systemBroadcastPickerView = picker
         
         // Find the button in the picker and trigger it programmatically
         // The button might be nested, so we need to search recursively
         DispatchQueue.main.async {
-            self.triggerBroadcastPickerButton(in: picker)
+            self.triggerBroadcastPickerButton(in: systemBroadcastPickerView)
             
             // Remove the picker after a short delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                picker.removeFromSuperview()
+                systemBroadcastPickerView.removeFromSuperview()
                 self.systemBroadcastPickerView = nil
             }
         }
@@ -2326,7 +2327,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // var onDismiss: (() -> Void)?
     private var recordingStarted: Bool = false;
     private var disconnectionAlert: UIAlertController?
-    private var systemBroadcastPickerView: RPSystemBroadcastPickerView?
+    private var systemBroadcastPickerView: UIView!
+    // Optional: set from the host app to explicitly target a broadcast extension
+    // var broadcastExtensionBundleId: String?
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
