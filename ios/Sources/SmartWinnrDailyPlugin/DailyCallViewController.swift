@@ -257,6 +257,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private lazy var newCameraButton = UIButton()
     private lazy var newMicButton = UIButton()
     private lazy var newEndRolePlayButton = UIButton()
+    private lazy var newScreenShareButton = UIButton()
     
     // Track if new UI is initialized
     private var isNewUIInitialized = false
@@ -341,6 +342,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         setupParticipantLabels()
         setupControlsOverlay()
         setupEndRolePlayButton()
+        setupScreenShareButton()
         setupNewConstraints()
     }
     
@@ -486,6 +488,20 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newContentContainerView.addSubview(newEndRolePlayButton)
     }
     
+    private func setupScreenShareButton() {
+        newScreenShareButton.setTitle("SCREEN SHARE", for: .normal)
+        newScreenShareButton.setTitleColor(.white, for: .normal)
+        newScreenShareButton.backgroundColor = UIColor.systemBlue
+        newScreenShareButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        newScreenShareButton.layer.cornerRadius = 25
+        newScreenShareButton.layer.masksToBounds = true
+        newScreenShareButton.translatesAutoresizingMaskIntoConstraints = false
+        newScreenShareButton.addTarget(self, action: #selector(screenShareTapped), for: .touchUpInside)
+        newScreenShareButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
+        newScreenShareButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        newContentContainerView.addSubview(newScreenShareButton)
+    }
+    
     private func setupNewConstraints() {
         NSLayoutConstraint.activate([
             // Container view - fill the safe area
@@ -556,12 +572,19 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             newMicButton.widthAnchor.constraint(equalToConstant: 32),
             newMicButton.heightAnchor.constraint(equalToConstant: 32),
             
-            // End role play button - at bottom of container
+            // Buttons container - at bottom of container
             newEndRolePlayButton.topAnchor.constraint(greaterThanOrEqualTo: newRemoteParticipantLabel.bottomAnchor, constant: 20),
-            newEndRolePlayButton.centerXAnchor.constraint(equalTo: newContentContainerView.centerXAnchor),
-            newEndRolePlayButton.widthAnchor.constraint(equalToConstant: 200),
+            newEndRolePlayButton.leadingAnchor.constraint(equalTo: newContentContainerView.centerXAnchor, constant: 10),
+            newEndRolePlayButton.widthAnchor.constraint(equalToConstant: 180),
             newEndRolePlayButton.heightAnchor.constraint(equalToConstant: 50),
-            newEndRolePlayButton.bottomAnchor.constraint(equalTo: newContentContainerView.bottomAnchor)
+            newEndRolePlayButton.bottomAnchor.constraint(equalTo: newContentContainerView.bottomAnchor),
+            
+            // Screen share button - beside end role play button
+            newScreenShareButton.topAnchor.constraint(equalTo: newEndRolePlayButton.topAnchor),
+            newScreenShareButton.trailingAnchor.constraint(equalTo: newContentContainerView.centerXAnchor, constant: -10),
+            newScreenShareButton.widthAnchor.constraint(equalToConstant: 180),
+            newScreenShareButton.heightAnchor.constraint(equalToConstant: 50),
+            newScreenShareButton.bottomAnchor.constraint(equalTo: newContentContainerView.bottomAnchor)
         ])
     }
     
@@ -678,6 +701,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newLocalParticipantLabel.isHidden = false
         newRemoteParticipantLabel.isHidden = false
         newEndRolePlayButton.isHidden = false
+        newScreenShareButton.isHidden = false
         
         print("🎨 New UI Layout Enabled!")
     }
@@ -816,18 +840,44 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // MARK: - Speaking Animation Methods
 
     // Add these methods inside the class
-    @objc private func buttonTouchDown() {
+    @objc private func buttonTouchDown(_ sender: UIButton) {
         UIView.animate(withDuration: 0.1) {
-            self.newEndRolePlayButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
-            self.newEndRolePlayButton.alpha = 0.9
+            sender.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            sender.alpha = 0.9
         }
     }
 
-    @objc private func buttonTouchUp() {
+    @objc private func buttonTouchUp(_ sender: UIButton) {
         UIView.animate(withDuration: 0.1) {
             let identityTransform = CGAffineTransform.identity
-            self.newEndRolePlayButton.transform = identityTransform
-            self.newEndRolePlayButton.alpha = 1.0
+            sender.transform = identityTransform
+            sender.alpha = 1.0
+        }
+    }
+    
+    @objc private func screenShareTapped() {
+        // Add visual feedback
+        UIView.animate(withDuration: 0.1, animations: {
+            self.newScreenShareButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                let identityTransform = CGAffineTransform.identity
+                self.newScreenShareButton.transform = identityTransform
+            }
+        }
+        
+        // Toggle screen share
+        callClient.startScreenShare() { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(_):
+                print("Screen share started successfully")
+            case .failure(let error):
+                print("Failed to start screen share: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.showAlert(message: "Failed to start screen share: \(error.localizedDescription)")
+                }
+            }
         }
     }
     
