@@ -239,7 +239,7 @@ class AudioAnalyzer {
     }
 }
 
-class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEventDelegate {
+class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEventDelegate, ScreenShareModalDelegate {
 
     // MARK: - UI Components to match the design (New UI Elements)
     private lazy var newContentContainerView = UIView()
@@ -866,17 +866,93 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             }
         }
         
-        // Toggle screen share
+        // Show screen share modal
+        showScreenShareModal()
+    }
+    
+    // MARK: - Screen Share Modal
+    private func showScreenShareModal() {
+        let modalViewController = ScreenShareModalViewController()
+        modalViewController.delegate = self
+        modalViewController.modalPresentationStyle = .pageSheet
+        
+        if #available(iOS 15.0, *) {
+            if let sheet = modalViewController.sheetPresentationController {
+                sheet.detents = [.medium()]
+                sheet.prefersGrabberVisible = true
+                sheet.preferredCornerRadius = 20
+            }
+        }
+        
+        present(modalViewController, animated: true, completion: nil)
+    }
+    
+    private func startScreenShare() {
         callClient.startScreenShare() { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(_):
                 print("Screen share started successfully")
+                DispatchQueue.main.async {
+                    self.showAlert(message: "Screen share started successfully")
+                }
             case .failure(let error):
                 print("Failed to start screen share: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.showAlert(message: "Failed to start screen share: \(error.localizedDescription)")
                 }
+            }
+        }
+    }
+    
+    // MARK: - Screen Share Modal Delegate
+    func screenShareModalDidSelectStart() {
+        showBroadcastSystemPicker()
+    }
+    
+    func screenShareModalDidCancel() {
+        // Modal was cancelled, no action needed
+        print("Screen share modal cancelled")
+    }
+    
+    // MARK: - Broadcast System Picker
+    private func showBroadcastSystemPicker() {
+        // Create and configure the broadcast picker view
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        // Set the first available or let system show all if none match
+        picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
+        picker.showsMicrophoneButton = false
+        
+        // Add to view hierarchy (hidden, we'll trigger it programmatically)
+        picker.isHidden = true
+        view.addSubview(picker)
+        
+        // Store reference to prevent deallocation
+        self.systemBroadcastPickerView = picker
+        
+        // Find the button in the picker and trigger it programmatically
+        // The button might be nested, so we need to search recursively
+        DispatchQueue.main.async {
+            self.triggerBroadcastPickerButton(in: picker)
+            
+            // Remove the picker after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                picker.removeFromSuperview()
+                self.systemBroadcastPickerView = nil
+            }
+        }
+    }
+    
+    private func triggerBroadcastPickerButton(in view: UIView) {
+        // Recursively search for UIButton in the view hierarchy
+        for subview in view.subviews {
+            if let button = subview as? UIButton {
+                // Trigger the button tap
+                button.sendActions(for: .touchUpInside)
+                return
+            } else {
+                // Recursively search in subviews
+                triggerBroadcastPickerButton(in: subview)
             }
         }
     }
@@ -2250,7 +2326,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // var onDismiss: (() -> Void)?
     private var recordingStarted: Bool = false;
     private var disconnectionAlert: UIAlertController?
-    var systemBroadcastPickerView: UIView!
+    private var systemBroadcastPickerView: RPSystemBroadcastPickerView?
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
@@ -2414,10 +2490,10 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 50, y: 100, width: 60, height: 100))
-        picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
-        picker.showsMicrophoneButton = false
-        view.addSubview(picker)
+        // let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 50, y: 100, width: 60, height: 100))
+        // picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
+        // picker.showsMicrophoneButton = false
+        // view.addSubview(picker)
 
         
         view.backgroundColor = .systemBackground
@@ -3476,6 +3552,120 @@ extension DailyCallViewController: CallClientDelegate {
         print("🧹 DEBUG: Animation cleanup completed")
     }
     
+}
+
+// MARK: - Screen Share Modal Delegate Protocol
+protocol ScreenShareModalDelegate: AnyObject {
+    func screenShareModalDidSelectStart()
+    func screenShareModalDidCancel()
+}
+
+// MARK: - Screen Share Modal View Controller
+class ScreenShareModalViewController: UIViewController {
+    weak var delegate: ScreenShareModalDelegate?
+    
+    private let containerView = UIView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let startButton = UIButton()
+    private let cancelButton = UIButton()
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupUI()
+    }
+    
+    private func setupUI() {
+        view.backgroundColor = UIColor.systemBackground
+        
+        // Container view
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.backgroundColor = .clear
+        view.addSubview(containerView)
+        
+        // Title label
+        titleLabel.text = "Screen Share"
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(titleLabel)
+        
+        // Description label
+        descriptionLabel.text = "Share your screen with other participants in the call. You can share your entire screen or a specific application window."
+        descriptionLabel.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        descriptionLabel.textColor = .secondaryLabel
+        descriptionLabel.textAlignment = .center
+        descriptionLabel.numberOfLines = 0
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(descriptionLabel)
+        
+        // Start button
+        startButton.setTitle("Start Screen Share", for: .normal)
+        startButton.setTitleColor(.white, for: .normal)
+        startButton.backgroundColor = UIColor.systemBlue
+        startButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 18)
+        startButton.layer.cornerRadius = 12
+        startButton.layer.masksToBounds = true
+        startButton.translatesAutoresizingMaskIntoConstraints = false
+        startButton.addTarget(self, action: #selector(startButtonTapped), for: .touchUpInside)
+        containerView.addSubview(startButton)
+        
+        // Cancel button
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.setTitleColor(.label, for: .normal)
+        cancelButton.backgroundColor = UIColor.systemGray5
+        cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        cancelButton.layer.cornerRadius = 12
+        cancelButton.layer.masksToBounds = true
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        cancelButton.addTarget(self, action: #selector(cancelButtonTapped), for: .touchUpInside)
+        containerView.addSubview(cancelButton)
+        
+        // Constraints
+        NSLayoutConstraint.activate([
+            // Container view
+            containerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            containerView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
+            
+            // Title label
+            titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            
+            // Description label
+            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+            descriptionLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+            descriptionLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+            
+            // Start button
+            startButton.topAnchor.constraint(equalTo: descriptionLabel.bottomAnchor, constant: 32),
+            startButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            startButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            startButton.heightAnchor.constraint(equalToConstant: 50),
+            
+            // Cancel button
+            cancelButton.topAnchor.constraint(equalTo: startButton.bottomAnchor, constant: 12),
+            cancelButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            cancelButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            cancelButton.heightAnchor.constraint(equalToConstant: 44),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20)
+        ])
+    }
+    
+    @objc private func startButtonTapped() {
+        dismiss(animated: true) { [weak self] in
+            self?.delegate?.screenShareModalDidSelectStart()
+        }
+    }
+    
+    @objc private func cancelButtonTapped() {
+        dismiss(animated: true) { [weak self] in
+            self?.delegate?.screenShareModalDidCancel()
+        }
+    }
 }
 
 
