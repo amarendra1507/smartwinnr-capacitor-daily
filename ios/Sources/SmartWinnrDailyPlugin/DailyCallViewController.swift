@@ -2200,6 +2200,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // var onDismiss: (() -> Void)?
     private var recordingStarted: Bool = false;
     private var disconnectionAlert: UIAlertController?
+    var systemBroadcastPickerView: UIView!
    
     init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
         self.roomURLString = urlString
@@ -2363,6 +2364,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 50, y: 100, width: 60, height: 100))
+        picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
+        picker.showsMicrophoneButton = false
+        view.addSubview(picker)
+
         
         view.backgroundColor = .systemBackground
         self.modalPresentationStyle = .fullScreen
@@ -3071,6 +3077,14 @@ extension DailyCallViewController: CallClientDelegate {
                     self.removeOverlayView()
                 }
                 self.joined()
+                self.callClient.startScreenShare() { result in
+                    switch result {
+                    case .success(_):
+                        print("Started screen share")
+                    case .failure(let error):
+                        print("Failed to start screen share: \(error.localizedDescription)")
+                    }
+                }
             case .failure(let error):
                 print("Failed startRecording: \(error.localizedDescription)")
                 // Trigger the new error callback
