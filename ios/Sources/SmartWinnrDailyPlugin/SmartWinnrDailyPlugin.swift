@@ -69,6 +69,8 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("testMode is required")
             return
         }
+
+        let enableScreenShare = call.getBool("enableScreenShare") ?? false
                 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -81,7 +83,8 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 coachingTitle: coachingTitle, 
                 maxTime: maxTime, 
                 coachName: coachName, 
-                testMode: testMode
+                testMode: testMode,
+                enableScreenShare: enableScreenShare
             )
             
             // Store the reference
