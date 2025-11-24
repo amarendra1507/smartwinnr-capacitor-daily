@@ -489,6 +489,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     }
     
     private func setupScreenShareButton() {
+        print("setupScreenShareButton: \(self.enableScreenShare)")
         newScreenShareButton.setTitle("SCREEN SHARE", for: .normal)
         newScreenShareButton.setTitleColor(.white, for: .normal)
         newScreenShareButton.backgroundColor = UIColor.systemBlue
@@ -499,6 +500,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newScreenShareButton.addTarget(self, action: #selector(screenShareTapped), for: .touchUpInside)
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        newScreenShareButton.isHidden = !self.enableScreenShare
         newContentContainerView.addSubview(newScreenShareButton)
     }
     
@@ -701,7 +703,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newLocalParticipantLabel.isHidden = false
         newRemoteParticipantLabel.isHidden = false
         newEndRolePlayButton.isHidden = false
-        newScreenShareButton.isHidden = false
+        newScreenShareButton.isHidden = !self.enableScreenShare
         
         print("🎨 New UI Layout Enabled!")
     }
@@ -924,21 +926,21 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
         systemBroadcastPickerView.showsMicrophoneButton = false
         
-        // Add to view hierarchy (hidden, we'll trigger it programmatically)
-        // picker.isHidden = true
-        // view.addSubview(picker)
-        
-        // Store reference to prevent deallocation
-        // self.systemBroadcastPickerView = picker
+        // Store reference to prevent deallocation and allow dismissal
+        self.systemBroadcastPickerView = systemBroadcastPickerView
         
         // Find the button in the picker and trigger it programmatically
         // The button might be nested, so we need to search recursively
         DispatchQueue.main.async {
             self.triggerBroadcastPickerButton(in: systemBroadcastPickerView)
-            
-            // Remove the picker after a short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                systemBroadcastPickerView.removeFromSuperview()
+        }
+    }
+    
+    private func dismissBroadcastPicker() {
+        // Dismiss the broadcast picker if it's still visible
+        if let picker = systemBroadcastPickerView {
+            DispatchQueue.main.async {
+                picker.removeFromSuperview()
                 self.systemBroadcastPickerView = nil
             }
         }
@@ -2294,6 +2296,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private let coachingTitle: String
     private let coachName: String
     private let isTestMode: Bool
+    private let enableScreenShare: Bool
     private let maxTime: TimeInterval
     private var currentTime: TimeInterval = 1
     var timer:Timer?
@@ -2330,8 +2333,10 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private var systemBroadcastPickerView: UIView!
     // Optional: set from the host app to explicitly target a broadcast extension
     // var broadcastExtensionBundleId: String?
+    
+    private var isScreenSharingActive: Bool = false
    
-    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool ) {
+    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool, enableScreenShare: Bool) {
         self.roomURLString = urlString
         self.token = MeetingToken(stringValue: token)
         self.userName = userName
@@ -2339,6 +2344,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         self.maxTime = TimeInterval(maxTime);
         self.coachName = coachName;
         self.isTestMode = testMode;
+        self.enableScreenShare = enableScreenShare;
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -2359,6 +2365,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     
     deinit {
         print("🧹 DailyCallViewController deinit - cleaning up resources")
+        
+        // Remove notification observers
+        NotificationCenter.default.removeObserver(self)
         
         // Invalidate timer on main thread
         DispatchQueue.main.async { [weak timer] in
@@ -3130,7 +3139,11 @@ extension DailyCallViewController: CallClientDelegate {
     ) {
         print("System broadcast started")
         
-
+        isScreenSharingActive = true
+        
+        // Dismiss the broadcast picker when screen share starts
+        dismissBroadcastPicker()
+        
         callClient.updateInputs(
             .set(screenVideo: .set(isEnabled: .set(true))),
             completion: nil
@@ -3141,6 +3154,8 @@ extension DailyCallViewController: CallClientDelegate {
         _ callClient: CallClient
     ) {
         print("System broadcast ended")
+        
+        isScreenSharingActive = false
 
         callClient.updateInputs(
             .set(screenVideo: .set(isEnabled: .set(false))),
@@ -3656,5 +3671,6 @@ class ScreenShareModalViewController: UIViewController {
         }
     }
 }
+
 
 
