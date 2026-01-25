@@ -10,6 +10,7 @@ import UIKit
 import Daily
 import ReplayKit
 import AVFoundation
+import AVKit
 
 
 
@@ -310,6 +311,12 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     weak var serverEventDelegate: ServerEventDelegate?
     private var eventQueue: DispatchQueue = DispatchQueue(label: "ServerEventQueue", qos: .userInitiated)
     private var isEventHandlingActive: Bool = true
+    
+    // MARK: - Picture in Picture Properties
+    private var pipController: AVPictureInPictureController?
+    private var pipPlayerLayer: AVPlayerLayer?
+    private var pipPlayer: AVPlayer?
+    private var isScreenSharingActive: Bool = false
     
     struct TurnRecord {
         let turn: Int
@@ -2252,6 +2259,19 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         thinkingAnimations.removeAll()
         videoViews.removeAll()
         
+        // Clean up PiP resources
+        if let pipController = pipController, pipController.isPictureInPictureActive {
+            pipController.stopPictureInPicture()
+        }
+        pipController = nil
+        pipPlayer?.pause()
+        pipPlayer = nil
+        pipPlayerLayer?.removeFromSuperlayer()
+        pipPlayerLayer = nil
+        
+        // Remove notification observers
+        NotificationCenter.default.removeObserver(self)
+        
         print("🧹 DailyCallViewController deinit completed")
     }
     
@@ -2381,6 +2401,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // Setup constraints
         setupConstraints()
         startTimer();
+        
+        // Setup Picture in Picture
+        setupPictureInPicture()
         
         // Initialize and enable the new UI design
         enableNewUILayout()
@@ -2990,6 +3013,267 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             alert.dismiss(animated: true)
         }
     }
+    
+    // MARK: - Picture in Picture Methods
+    
+    /// Sets up Picture in Picture controller for screen sharing
+    /// PiP mode allows the app to minimize to a small floating window during screen sharing
+    /// This enables users to see their shared screen while maintaining access to video controls
+    private func setupPictureInPicture() {
+        // Check iOS version (PiP requires iOS 15.0+)
+        guard #available(iOS 15.0, *) else {
+            print("PiP requires iOS 15.0 or later")
+            return
+        }
+        
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            print("PiP is not supported on this device")
+            return
+        }
+        
+        // Configure audio session for PiP
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .videoChat, options: [.mixWithOthers, .allowBluetooth])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to configure audio session: \(error)")
+        }
+        
+        // Create a minimal video player for PiP
+        // We use a transparent/minimal video since Daily SDK handles the actual video
+        let player = AVPlayer()
+        let playerLayer = AVPlayerLayer(player: player)
+        
+        // Position the layer off-screen but keep it in the view hierarchy
+        playerLayer.frame = CGRect(x: -100, y: -100, width: 100, height: 100)
+        playerLayer.videoGravity = .resizeAspect
+        view.layer.insertSublayer(playerLayer, at: 0)
+        
+        self.pipPlayer = player
+        self.pipPlayerLayer = playerLayer
+        
+        // Create PiP controller
+        let pipController = AVPictureInPictureController(playerLayer: playerLayer)
+        pipController.delegate = self
+        pipController.canStartPictureInPictureAutomaticallyFromInline = false
+        self.pipController = pipController
+        
+        print("PiP controller setup successfully")
+    }
+    
+    /// Starts Picture in Picture mode
+    /// Called automatically when screen sharing begins
+    private func startPictureInPicture() {
+        guard #available(iOS 15.0, *) else {
+            print("PiP requires iOS 15.0 or later")
+            return
+        }
+        
+        guard let pipController = pipController else {
+            print("PiP controller not initialized, setting up now...")
+            setupPictureInPicture()
+            
+            // Try again after setup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.startPictureInPicture()
+            }
+            return
+        }
+        
+        guard !pipController.isPictureInPictureActive else {
+            print("PiP is already active")
+            return
+        }
+        
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            print("PiP is not supported on this device")
+            return
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Prepare player with content if needed
+            if self.pipPlayer?.currentItem == nil {
+                // Create a transparent/minimal video asset for PiP
+                // This is a workaround since Daily SDK manages the actual video
+                self.createMinimalVideoAsset()
+            }
+            
+            // Ensure player is playing
+            self.pipPlayer?.play()
+            
+            // Wait a moment for player to be ready, then start PiP
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if pipController.isPictureInPicturePossible {
+                    pipController.startPictureInPicture()
+                    self.isScreenSharingActive = true
+                    print("PiP mode started successfully")
+                } else {
+                    print("PiP is not possible at this moment, will retry...")
+                    // Retry after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if pipController.isPictureInPicturePossible {
+                            pipController.startPictureInPicture()
+                            self.isScreenSharingActive = true
+                            print("PiP mode started successfully (retry)")
+                        } else {
+                            print("PiP still not possible")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func createMinimalVideoAsset() {
+        // Create a minimal video asset for PiP
+        // This is a workaround since Daily SDK manages the actual video content
+        
+        // Generate a small video file programmatically
+        let documentsPath = FileManager.default.temporaryDirectory
+        let videoPath = documentsPath.appendingPathComponent("pip_placeholder.mp4")
+        
+        // Check if we already have a placeholder video
+        if FileManager.default.fileExists(atPath: videoPath.path) {
+            let asset = AVAsset(url: videoPath)
+            let playerItem = AVPlayerItem(asset: asset)
+            setupVideoLooping(for: playerItem)
+            pipPlayer?.replaceCurrentItem(with: playerItem)
+            return
+        }
+        
+        // If no placeholder exists, create a simple one-frame video
+        generatePlaceholderVideo(at: videoPath) { [weak self] success in
+            if success {
+                let asset = AVAsset(url: videoPath)
+                let playerItem = AVPlayerItem(asset: asset)
+                self?.setupVideoLooping(for: playerItem)
+                self?.pipPlayer?.replaceCurrentItem(with: playerItem)
+            } else {
+                print("Failed to generate placeholder video for PiP")
+            }
+        }
+    }
+    
+    private func setupVideoLooping(for playerItem: AVPlayerItem) {
+        // Enable looping for continuous playback
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pipPlayer?.seek(to: .zero)
+            self?.pipPlayer?.play()
+        }
+    }
+    
+    private func generatePlaceholderVideo(at url: URL, completion: @escaping (Bool) -> Void) {
+        // Create a 1-second black video for PiP placeholder
+        let width = 320
+        let height = 180
+        
+        guard let videoWriter = try? AVAssetWriter(url: url, fileType: .mp4) else {
+            completion(false)
+            return
+        }
+        
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height
+        ]
+        
+        let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        let sourcePixelBufferAttributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ]
+        
+        let pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: videoWriterInput,
+            sourcePixelBufferAttributes: sourcePixelBufferAttributes
+        )
+        
+        videoWriter.add(videoWriterInput)
+        
+        videoWriter.startWriting()
+        videoWriter.startSession(atSourceTime: .zero)
+        
+        // Create a single black frame
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32ARGB,
+            nil,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+            completion(false)
+            return
+        }
+        
+        CVPixelBufferLockBaseAddress(buffer, [])
+        let pixelData = CVPixelBufferGetBaseAddress(buffer)
+        let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        guard let context = CGContext(
+            data: pixelData,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: rgbColorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        ) else {
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            completion(false)
+            return
+        }
+        
+        // Fill with dark color
+        context.setFillColor(UIColor(white: 0.1, alpha: 1.0).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+        
+        // Append the frame
+        let frameDuration = CMTime(value: 1, timescale: 30)
+        pixelBufferAdaptor.append(buffer, withPresentationTime: .zero)
+        
+        videoWriterInput.markAsFinished()
+        videoWriter.finishWriting {
+            completion(videoWriter.status == .completed)
+        }
+    }
+    
+    /// Stops Picture in Picture mode
+    /// Called automatically when screen sharing ends
+    /// Returns the app to normal full-screen mode
+    private func stopPictureInPicture() {
+        guard #available(iOS 15.0, *) else {
+            return
+        }
+        
+        guard let pipController = pipController else {
+            print("PiP controller not initialized")
+            return
+        }
+        
+        guard pipController.isPictureInPictureActive else {
+            print("PiP is not active")
+            return
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            pipController.stopPictureInPicture()
+            self?.isScreenSharingActive = false
+            print("PiP mode stopped")
+        }
+    }
 
             
 }
@@ -3006,6 +3290,9 @@ extension DailyCallViewController: CallClientDelegate {
             .set(screenVideo: .set(isEnabled: .set(true))),
             completion: nil
         )
+        
+        // Start Picture in Picture mode when screen sharing begins
+        startPictureInPicture()
     }
 
     public func callClientDidDetectEndOfSystemBroadcast(
@@ -3017,6 +3304,9 @@ extension DailyCallViewController: CallClientDelegate {
             .set(screenVideo: .set(isEnabled: .set(false))),
             completion: nil
         )
+        
+        // Stop Picture in Picture mode when screen sharing ends
+        stopPictureInPicture()
     }
     
     func callClient(_ callClient: CallClient, inputsUpdated inputs: InputSettings) {
@@ -3412,6 +3702,38 @@ extension DailyCallViewController: CallClientDelegate {
         print("🧹 DEBUG: Animation cleanup completed")
     }
     
+}
+
+// MARK: - AVPictureInPictureControllerDelegate
+
+extension DailyCallViewController: AVPictureInPictureControllerDelegate {
+    
+    func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("PiP will start")
+    }
+    
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("PiP did start successfully")
+    }
+    
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        print("PiP failed to start with error: \(error.localizedDescription)")
+    }
+    
+    func pictureInPictureControllerWillStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("PiP will stop")
+    }
+    
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("PiP did stop successfully")
+    }
+    
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        // This is called when the user taps the restore button in PiP window
+        // Return the app to normal state
+        print("Restoring user interface from PiP")
+        completionHandler(true)
+    }
 }
 
 
