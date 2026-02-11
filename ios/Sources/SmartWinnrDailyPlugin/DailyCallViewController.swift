@@ -10,6 +10,7 @@ import UIKit
 import Daily
 import ReplayKit
 import AVFoundation
+import AVKit
 
 
 
@@ -718,6 +719,32 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         }
     }
     
+    // Method to set user profile image
+    func setUserProfileImage(_ image: UIImage) {
+        self.userProfileImage = image
+        
+        // Update PiP if already initialized
+        if #available(iOS 15.0, *) {
+            if pipVideoCallViewControllerStorage != nil {
+                // Reinitialize PiP with new profile image
+                setupPictureInPicture()
+            }
+        }
+    }
+    
+    // Method to set user profile image from URL
+    func setUserProfileImageURL(_ urlString: String) {
+        self.userProfileImageURL = urlString
+        
+        // Update PiP if already initialized
+        if #available(iOS 15.0, *) {
+            if pipVideoCallViewControllerStorage != nil {
+                // Reinitialize PiP with new profile image
+                setupPictureInPicture()
+            }
+        }
+    }
+    
     // MARK: - Orientation Handling
     
     private func updateStackViewForCurrentOrientation() {
@@ -870,6 +897,365 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         
         // Show screen share modal
         showScreenShareModal()
+    }
+    
+    // MARK: - Picture-in-Picture Setup
+    // IMPORTANT: For PiP to work properly, ensure your Info.plist contains:
+    // - UIBackgroundModes with "audio" and "voip"
+    // - NSMicrophoneUsageDescription
+    // - AVPictureInPictureController support (iOS 15+)
+    
+    /// Checks if Picture-in-Picture is supported and properly configured
+    @available(iOS 15.0, *)
+    private func checkPipSupport() -> Bool {
+        // Check if PiP is supported on this device
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            print("❌ PiP: Picture-in-Picture is not supported on this device")
+            return false
+        }
+        
+        print("✅ PiP: Picture-in-Picture is supported")
+        
+        // Verify audio session configuration
+        let audioSession = AVAudioSession.sharedInstance()
+        let category = audioSession.category
+        print("📺 PiP: Audio session category: \(category)")
+        
+        return true
+    }
+    
+    /// Sets up the user's profile picture in the PiP window
+    /// This will display the user's avatar with their name when screen sharing is active
+    /// - Parameter pipViewController: The AVPictureInPictureVideoCallViewController to configure
+    @available(iOS 15.0, *)
+    private func setupProfilePictureForPiP(in pipViewController: AVPictureInPictureVideoCallViewController) {
+        // Create a container for the profile picture
+        let profileContainer = UIView()
+        profileContainer.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        profileContainer.translatesAutoresizingMaskIntoConstraints = false
+        pipViewController.view.addSubview(profileContainer)
+        
+        // Create profile image view
+        let profileImageView = UIImageView()
+        profileImageView.contentMode = .scaleAspectFill
+        profileImageView.clipsToBounds = true
+        profileImageView.backgroundColor = UIColor.systemGray
+        profileImageView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Set circular shape
+        profileImageView.layer.cornerRadius = 40
+        profileImageView.layer.borderWidth = 3
+        profileImageView.layer.borderColor = UIColor.white.cgColor
+        profileImageView.layer.shadowColor = UIColor.black.cgColor
+        profileImageView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        profileImageView.layer.shadowRadius = 4
+        profileImageView.layer.shadowOpacity = 0.3
+        
+        profileContainer.addSubview(profileImageView)
+        
+        // Create user name label
+        let nameLabel = UILabel()
+        nameLabel.text = userName
+        nameLabel.textColor = .white
+        nameLabel.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        nameLabel.textAlignment = .center
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        profileContainer.addSubview(nameLabel)
+        
+        // Load profile image
+        if let imageURL = userProfileImageURL, let url = URL(string: imageURL) {
+            loadProfileImage(from: url) { [weak profileImageView] image in
+                DispatchQueue.main.async {
+                    profileImageView?.image = image
+                }
+            }
+        } else if let image = userProfileImage {
+            profileImageView.image = image
+        } else {
+            // Set default placeholder (user initials)
+            profileImageView.image = generateDefaultProfileImage(for: userName)
+        }
+        
+        // Setup constraints
+        NSLayoutConstraint.activate([
+            // Profile container
+            profileContainer.centerXAnchor.constraint(equalTo: pipViewController.view.centerXAnchor),
+            profileContainer.centerYAnchor.constraint(equalTo: pipViewController.view.centerYAnchor),
+            profileContainer.widthAnchor.constraint(equalToConstant: 120),
+            profileContainer.heightAnchor.constraint(equalToConstant: 120),
+            
+            // Profile image
+            profileImageView.centerXAnchor.constraint(equalTo: profileContainer.centerXAnchor),
+            profileImageView.topAnchor.constraint(equalTo: profileContainer.topAnchor, constant: 10),
+            profileImageView.widthAnchor.constraint(equalToConstant: 80),
+            profileImageView.heightAnchor.constraint(equalToConstant: 80),
+            
+            // Name label
+            nameLabel.topAnchor.constraint(equalTo: profileImageView.bottomAnchor, constant: 8),
+            nameLabel.leadingAnchor.constraint(equalTo: profileContainer.leadingAnchor, constant: 8),
+            nameLabel.trailingAnchor.constraint(equalTo: profileContainer.trailingAnchor, constant: -8),
+            nameLabel.bottomAnchor.constraint(lessThanOrEqualTo: profileContainer.bottomAnchor, constant: -10)
+        ])
+        
+        print("📺 PiP: Profile picture setup completed for user: \(userName)")
+    }
+    
+    private func loadProfileImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("⚠️ PiP: Failed to load profile image: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+            
+            guard let data = data, let image = UIImage(data: data) else {
+                print("⚠️ PiP: Invalid image data")
+                completion(nil)
+                return
+            }
+            
+            completion(image)
+        }.resume()
+    }
+    
+    private func generateDefaultProfileImage(for name: String) -> UIImage? {
+        // Generate an image with user's initials
+        let initials = name.components(separatedBy: " ")
+            .prefix(2)
+            .compactMap { $0.first }
+            .map { String($0).uppercased() }
+            .joined()
+        
+        let size = CGSize(width: 80, height: 80)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let image = renderer.image { context in
+            // Draw gradient background
+            let colors = [UIColor.systemBlue.cgColor, UIColor.systemPurple.cgColor]
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                     colors: colors as CFArray,
+                                     locations: [0.0, 1.0])!
+            context.cgContext.drawLinearGradient(gradient,
+                                                start: CGPoint(x: 0, y: 0),
+                                                end: CGPoint(x: size.width, y: size.height),
+                                                options: [])
+            
+            // Draw initials
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 32, weight: .bold),
+                .foregroundColor: UIColor.white
+            ]
+            
+            let textSize = initials.size(withAttributes: attributes)
+            let textRect = CGRect(
+                x: (size.width - textSize.width) / 2,
+                y: (size.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            
+            initials.draw(in: textRect, withAttributes: attributes)
+        }
+        
+        return image
+    }
+    
+    private func getRemoteVideoView() -> UIView? {
+        if isNewUIInitialized {
+            // Use the new UI remote video view if it has a track
+            if newRemoteVideoView.track != nil {
+                print("📺 PiP: Using newRemoteVideoView")
+                return newRemoteVideoView
+            }
+        }
+        
+        // Fallback to first available remote video view
+        if let firstRemoteView = videoViews.values.first(where: { $0.track != nil }) {
+            print("📺 PiP: Using first remote video view from videoViews")
+            return firstRemoteView
+        }
+        
+        print("⚠️ PiP: No remote video view with active track found")
+        return nil
+    }
+    
+    @available(iOS 15.0, *)
+    private func setupPictureInPicture() {
+        // Check if PiP is supported
+        guard checkPipSupport() else {
+            print("❌ PiP: Setup aborted - PiP not supported")
+            return
+        }
+        
+        print("📺 PiP: Setting up Picture-in-Picture with profile picture")
+        
+        // Configure audio session for PiP support
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker, .mixWithOthers])
+            try audioSession.setActive(true)
+            print("✅ PiP: Audio session configured successfully")
+        } catch {
+            print("⚠️ PiP: Failed to configure audio session: \(error.localizedDescription)")
+        }
+        
+        // Create the PiP video call view controller
+        let pipVideoCallVC = AVPictureInPictureVideoCallViewController()
+        pipVideoCallVC.preferredContentSize = CGSize(width: 320, height: 240)
+        pipVideoCallVC.view.backgroundColor = .black
+        
+        // Add user profile picture to PiP view
+        setupProfilePictureForPiP(in: pipVideoCallVC)
+        
+        pipVideoCallViewControllerStorage = pipVideoCallVC
+        
+        // Create a sample buffer display layer for PiP
+        let sampleBufferLayer = AVSampleBufferDisplayLayer()
+        sampleBufferLayer.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
+        sampleBufferLayer.videoGravity = .resizeAspect
+        
+        // Add the layer to the PiP view controller's view
+        pipVideoCallVC.view.layer.insertSublayer(sampleBufferLayer, at: 0)
+        
+        // Get the actual video view that's rendering
+        let sourceView: UIView
+        if isNewUIInitialized && newRemoteVideoView.track != nil {
+            sourceView = newRemoteVideoView
+            print("📺 PiP: Using newRemoteVideoView as source")
+        } else if let firstVideoView = videoViews.values.first(where: { $0.track != nil }) {
+            sourceView = firstVideoView
+            print("📺 PiP: Using first available video view as source")
+        } else {
+            // Create a placeholder view if no video is available yet
+            sourceView = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+            sourceView.backgroundColor = .black
+            print("⚠️ PiP: Using placeholder view - no video track available yet")
+        }
+        
+        // Ensure the source view is in the view hierarchy and visible
+        if sourceView.superview == nil {
+            view.addSubview(sourceView)
+            sourceView.isHidden = true // Hidden but in hierarchy for rendering
+        }
+        
+        // Create content source with the video call view controller
+        let contentSource = AVPictureInPictureController.ContentSource(
+            activeVideoCallSourceView: sourceView,
+            contentViewController: pipVideoCallVC
+        )
+        
+        // Create PiP controller - handle optional initialization
+        let pipController: AVPictureInPictureController? = AVPictureInPictureController(contentSource: contentSource)
+        guard let controller = pipController else {
+            print("❌ PiP: Failed to create AVPictureInPictureController")
+            return
+        }
+        
+        controller.delegate = self
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.requiresLinearPlayback = false
+        pipControllerStorage = controller
+        
+        print("✅ PiP: Controller created - isPossible: \(controller.isPictureInPicturePossible)")
+        
+        // Observe PiP possibility
+        pipPossibleObservation = controller.observe(
+            \.isPictureInPicturePossible,
+            options: [.initial, .new]
+        ) { [weak self] (controller: AVPictureInPictureController, change: NSKeyValueObservedChange<Bool>) in
+            print("📺 PiP: isPictureInPicturePossible changed to \(controller.isPictureInPicturePossible)")
+            
+            // If PiP became possible and we're screen sharing, try to start it
+            if controller.isPictureInPicturePossible, let self = self, self.isScreenSharingActive {
+                print("📺 PiP: Auto-starting since screen sharing is active")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if !controller.isPictureInPictureActive {
+                        do {
+                            controller.startPictureInPicture()
+                            print("📺 PiP: Started successfully")
+                        } catch {
+                            print("❌ PiP: Start failed with error: \(error)")
+                        }
+                    }
+                }
+            }
+        }
+        
+        print("✅ PiP: Picture-in-Picture setup completed")
+    }
+    
+    @available(iOS 15.0, *)
+    private func startPictureInPicture() {
+        print("📺 PiP: Starting Picture-in-Picture mode")
+        
+        // Ensure video views are visible and in hierarchy
+        if isNewUIInitialized {
+            newRemoteVideoView.isHidden = false
+            newRemoteVideoContainer.isHidden = false
+            newRemoteVideoView.alpha = 1.0
+            newRemoteVideoContainer.alpha = 1.0
+        }
+        for (_, videoView) in videoViews {
+            videoView.isHidden = false
+            videoView.alpha = 1.0
+        }
+        
+        // If PiP wasn't set up, set it up now
+        if pipControllerStorage == nil {
+            print("📺 PiP: PiP not initialized, setting up now")
+            setupPictureInPicture()
+            
+            // Wait a moment for setup to complete, then try to start
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.attemptPipStart()
+            }
+            return
+        }
+        
+        attemptPipStart()
+    }
+    
+    @available(iOS 15.0, *)
+    private func attemptPipStart() {
+        guard let controller = pipControllerStorage as? AVPictureInPictureController else {
+            print("❌ PiP: PiP controller not initialized")
+            return
+        }
+        
+        print("📺 PiP: Controller state - isPossible: \(controller.isPictureInPicturePossible), isActive: \(controller.isPictureInPictureActive)")
+        
+        // Check if already active
+        if controller.isPictureInPictureActive {
+            print("ℹ️ PiP: Already active, nothing to do")
+            return
+        }
+        
+        // Try to start if possible
+        if controller.isPictureInPicturePossible {
+            print("▶️ PiP: Starting Picture-in-Picture now")
+            do {
+                controller.startPictureInPicture()
+                print("✅ PiP: Start command sent successfully")
+            } catch {
+                print("❌ PiP: Failed to start - \(error.localizedDescription)")
+            }
+        } else {
+            print("⚠️ PiP: Not possible yet, will retry...")
+            // Retry after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.attemptPipStart()
+            }
+        }
+    }
+    
+    @available(iOS 15.0, *)
+    private func stopPictureInPicture() {
+        guard let controller = pipControllerStorage as? AVPictureInPictureController else { return }
+        
+        if controller.isPictureInPictureActive {
+            print("⏹️ PiP: Stopping Picture-in-Picture mode")
+            controller.stopPictureInPicture()
+        }
     }
     
     // MARK: - Screen Share Modal
@@ -1617,6 +2003,11 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         DispatchQueue.main.async { [weak self] in
             self?.stopParticipantAudioMonitoring()
         }
+        
+        // Stop Picture-in-Picture if active
+        if #available(iOS 15.0, *) {
+            stopPictureInPicture()
+        }
     }
     
     // MARK: - AudioAnalyzerDelegate
@@ -2300,6 +2691,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private let maxTime: TimeInterval
     private var currentTime: TimeInterval = 1
     var timer:Timer?
+    private var userProfileImageURL: String?
+    private var userProfileImage: UIImage?
     
     // UI elements
     var leaveRoomButton: UIButton!
@@ -2335,8 +2728,14 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     // var broadcastExtensionBundleId: String?
     
     private var isScreenSharingActive: Bool = false
+    
+    // MARK: - Picture-in-Picture Properties
+    // Using Any? to avoid @available on stored properties
+    private var pipControllerStorage: Any?
+    private var pipVideoCallViewControllerStorage: Any?
+    private var pipPossibleObservation: NSKeyValueObservation?
    
-    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool, enableScreenShare: Bool) {
+    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool, enableScreenShare: Bool, userProfileImageURL: String? = nil) {
         self.roomURLString = urlString
         self.token = MeetingToken(stringValue: token)
         self.userName = userName
@@ -2345,6 +2744,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         self.coachName = coachName;
         self.isTestMode = testMode;
         self.enableScreenShare = enableScreenShare;
+        self.userProfileImageURL = userProfileImageURL;
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -2383,6 +2783,20 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             analyzer.stopAnalyzing()
         }
         audioAnalyzers.removeAll()
+        
+        // Cleanup Picture-in-Picture
+        pipPossibleObservation?.invalidate()
+        pipPossibleObservation = nil
+        
+        if #available(iOS 15.0, *) {
+            if let controller = pipControllerStorage as? AVPictureInPictureController,
+               controller.isPictureInPictureActive {
+                controller.stopPictureInPicture()
+            }
+        }
+        
+        pipControllerStorage = nil
+        pipVideoCallViewControllerStorage = nil
         
         // Clear all state
         participantStates.removeAll()
@@ -2522,6 +2936,14 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         
         // Initialize and enable the new UI design
         enableNewUILayout()
+        
+        // Setup Picture-in-Picture early (will reinitialize when participants join)
+        if #available(iOS 15.0, *) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.setupPictureInPicture()
+                print("📺 PiP: Initial setup completed")
+            }
+        }
         
         // Create and configure the overlay view
         overlayView = UIView()
@@ -3137,7 +3559,7 @@ extension DailyCallViewController: CallClientDelegate {
      func callClientDidDetectStartOfSystemBroadcast(
         _ callClient: CallClient
     ) {
-        print("System broadcast started")
+        print("🎬 System broadcast started - screen sharing beginning")
         
         isScreenSharingActive = true
         
@@ -3148,6 +3570,41 @@ extension DailyCallViewController: CallClientDelegate {
             .set(screenVideo: .set(isEnabled: .set(true))),
             completion: nil
         )
+        
+        // Setup or reinitialize PiP before starting
+        print("📺 PiP: Setting up Picture-in-Picture for screen share")
+        if #available(iOS 15.0, *) {
+            DispatchQueue.main.async {
+                // Force reinitialize PiP with current state
+                self.pipPossibleObservation?.invalidate()
+                self.pipControllerStorage = nil
+                
+                // Setup fresh PiP
+                self.setupPictureInPicture()
+                
+                // Wait for setup to complete, then start
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    print("📺 PiP: Starting Picture-in-Picture after setup")
+                    self.startPictureInPicture()
+                    
+                    // Verify after a delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        if let controller = self.pipControllerStorage as? AVPictureInPictureController {
+                            print("📺 PiP: Final status - isPossible: \(controller.isPictureInPicturePossible), isActive: \(controller.isPictureInPictureActive)")
+                            
+                            if controller.isPictureInPictureActive {
+                                print("✅ PiP is active and showing profile picture")
+                            } else if controller.isPictureInPicturePossible {
+                                print("⚠️ PiP is possible but not active - attempting one more time")
+                                self.attemptPipStart()
+                            } else {
+                                print("ℹ️ PiP: Not possible - app will stay minimized during screen share")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public func callClientDidDetectEndOfSystemBroadcast(
@@ -3161,6 +3618,13 @@ extension DailyCallViewController: CallClientDelegate {
             .set(screenVideo: .set(isEnabled: .set(false))),
             completion: nil
         )
+        
+        // Stop Picture-in-Picture mode when screen sharing ends
+        if #available(iOS 15.0, *) {
+            DispatchQueue.main.async {
+                self.stopPictureInPicture()
+            }
+        }
     }
     
     func callClient(_ callClient: CallClient, inputsUpdated inputs: InputSettings) {
@@ -3256,6 +3720,19 @@ extension DailyCallViewController: CallClientDelegate {
             
             // Enable server event handling
             self.setEventHandlingActive(true)
+            
+            // Reinitialize Picture-in-Picture now that we have remote video with track
+            if #available(iOS 15.0, *) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    // Clear existing PiP setup
+                    self.pipPossibleObservation?.invalidate()
+                    self.pipControllerStorage = nil
+                    
+                    // Setup fresh PiP with video content
+                    self.setupPictureInPicture()
+                    print("📺 PiP: Reinitialized after remote participant joined with video")
+                }
+            }
             
             // DISABLED: No automatic test animations - rely only on server messages
             // Test AI animation after a delay to ensure everything is setup
@@ -3672,5 +4149,77 @@ class ScreenShareModalViewController: UIViewController {
     }
 }
 
-
-
+// MARK: - AVPictureInPictureControllerDelegate
+@available(iOS 15.0, *)
+extension DailyCallViewController: AVPictureInPictureControllerDelegate {
+    
+    func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("📺 PiP Delegate: Will start Picture-in-Picture")
+    }
+    
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("✅ PiP Delegate: Picture-in-Picture started successfully!")
+        print("   - Controller: \(pictureInPictureController)")
+        print("   - isPictureInPictureActive: \(pictureInPictureController.isPictureInPictureActive)")
+        
+        // Ensure video views stay visible and continue rendering
+        DispatchQueue.main.async {
+            // Keep the remote video view and its container visible
+            if self.isNewUIInitialized {
+                self.newRemoteVideoView.isHidden = false
+                self.newRemoteVideoContainer.isHidden = false
+                self.newRemoteVideoContainer.alpha = 1.0
+                print("📺 PiP: Ensured remote video views remain visible")
+            }
+            
+            // Keep video rendering active
+            for (_, videoView) in self.videoViews {
+                videoView.isHidden = false
+                videoView.alpha = 1.0
+            }
+        }
+    }
+    
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        print("❌ PiP Delegate: Failed to start Picture-in-Picture")
+        print("   - Error: \(error.localizedDescription)")
+        print("   - Error domain: \(error)")
+        print("   - Controller state: isPossible=\(pictureInPictureController.isPictureInPicturePossible), isActive=\(pictureInPictureController.isPictureInPictureActive)")
+        
+        DispatchQueue.main.async {
+            // Only show alert in debug/test mode
+            if self.isTestMode {
+                self.showAlert(message: "PiP failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func pictureInPictureControllerWillStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("📺 PiP Delegate: Will stop Picture-in-Picture")
+    }
+    
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        print("⏹️ PiP Delegate: Picture-in-Picture stopped")
+        
+        // Return to full screen mode
+        DispatchQueue.main.async {
+            // Restore full screen if needed
+            print("📺 PiP: Returned to full screen mode")
+        }
+    }
+    
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        print("🔄 PiP Delegate: Restoring user interface from Picture-in-Picture")
+        
+        // Restore the full screen UI
+        DispatchQueue.main.async {
+            // If the view controller is not visible, present it
+            if self.presentingViewController == nil && self.view.window == nil {
+                print("⚠️ PiP: View controller not visible, may need manual restoration")
+            }
+            
+            // Call completion handler to indicate restoration is complete
+            completionHandler(true)
+        }
+    }
+}
