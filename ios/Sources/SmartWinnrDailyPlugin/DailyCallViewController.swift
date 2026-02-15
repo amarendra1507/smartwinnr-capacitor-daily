@@ -491,9 +491,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     
     private func setupScreenShareButton() {
         print("setupScreenShareButton: \(self.enableScreenShare)")
-        newScreenShareButton.setTitle("SCREEN SHARE", for: .normal)
         newScreenShareButton.setTitleColor(.white, for: .normal)
-        newScreenShareButton.backgroundColor = UIColor.systemBlue
         newScreenShareButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
         newScreenShareButton.layer.cornerRadius = 25
         newScreenShareButton.layer.masksToBounds = true
@@ -503,6 +501,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         newScreenShareButton.isHidden = !self.enableScreenShare
         newContentContainerView.addSubview(newScreenShareButton)
+        
+        // Initialize button state based on current screen sharing status
+        updateScreenShareButton()
     }
     
     private func setupNewConstraints() {
@@ -745,6 +746,32 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         }
     }
     
+    // Method to set AI coach profile image
+    func setCoachProfileImage(_ image: UIImage) {
+        self.coachProfileImage = image
+        
+        // Update PiP if already initialized
+        if #available(iOS 15.0, *) {
+            if pipVideoCallViewControllerStorage != nil {
+                // Reinitialize PiP with new coach profile image
+                setupPictureInPicture()
+            }
+        }
+    }
+    
+    // Method to set AI coach profile image from URL
+    func setCoachProfileImageURL(_ urlString: String) {
+        self.coachProfileImageURL = urlString
+        
+        // Update PiP if already initialized
+        if #available(iOS 15.0, *) {
+            if pipVideoCallViewControllerStorage != nil {
+                // Reinitialize PiP with new coach profile image
+                setupPictureInPicture()
+            }
+        }
+    }
+    
     // MARK: - Orientation Handling
     
     private func updateStackViewForCurrentOrientation() {
@@ -885,6 +912,12 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     }
     
     @objc private func screenShareTapped() {
+        // Prevent multiple taps while processing
+        guard newScreenShareButton.isEnabled else {
+            print("📺 Screen share button tap ignored - already processing")
+            return
+        }
+        
         // Add visual feedback
         UIView.animate(withDuration: 0.1, animations: {
             self.newScreenShareButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
@@ -895,8 +928,70 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             }
         }
         
-        // Show screen share modal
-        showScreenShareModal()
+        // Check current screen sharing state and toggle accordingly
+        if isScreenSharingActive {
+            // Currently sharing - stop it
+            print("📺 Screen share button tapped - STOPPING screen share")
+            stopScreenSharing()
+        } else {
+            // Not sharing - start it
+            print("📺 Screen share button tapped - STARTING screen share")
+            showScreenShareModal()
+        }
+    }
+    
+    /// Updates the screen share button appearance based on current state
+    private func updateScreenShareButton() {
+        DispatchQueue.main.async {
+            if self.isScreenSharingActive {
+                // Screen sharing is active - show stop button
+                self.newScreenShareButton.setTitle("STOP SCREEN SHARE", for: .normal)
+                self.newScreenShareButton.backgroundColor = UIColor.systemRed
+                print("📺 Screen Share Button: Updated to STOP state")
+            } else {
+                // Screen sharing is not active - show start button
+                self.newScreenShareButton.setTitle("SCREEN SHARE", for: .normal)
+                self.newScreenShareButton.backgroundColor = UIColor.systemBlue
+                print("📺 Screen Share Button: Updated to START state")
+            }
+        }
+    }
+    
+    /// Stops the current screen sharing session
+    private func stopScreenSharing() {
+        print("📺 Stopping screen share...")
+        
+        // Disable button temporarily to prevent double-tap
+        newScreenShareButton.isEnabled = false
+        
+        // Stop the screen video input
+        callClient.updateInputs(
+            .set(screenVideo: .set(isEnabled: .set(false))),
+            completion: { [weak self] result in
+                guard let self = self else { return }
+                
+                DispatchQueue.main.async {
+                    // Re-enable button
+                    self.newScreenShareButton.isEnabled = true
+                    
+                    switch result {
+                    case .success(_):
+                        print("📺 Screen share stopped successfully")
+                        self.isScreenSharingActive = false
+                        self.updateScreenShareButton()
+                        
+                        // Stop Picture-in-Picture mode when screen sharing ends
+                        if #available(iOS 15.0, *) {
+                            self.stopPictureInPicture()
+                        }
+                        
+                    case .failure(let error):
+                        print("❌ Failed to stop screen share: \(error.localizedDescription)")
+                        self.showAlert(message: "Failed to stop screen share: \(error.localizedDescription)")
+                    }
+                }
+            }
+        )
     }
     
     // MARK: - Picture-in-Picture Setup
@@ -924,15 +1019,19 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         return true
     }
     
-    /// Sets up the user's profile picture in the PiP window
-    /// This will display the user's avatar with their name when screen sharing is active
-    /// - Parameter pipViewController: The AVPictureInPictureVideoCallViewController to configure
+    /// Sets up the AI coach's profile picture in the PiP window as a small corner overlay
+    /// This will display as a small badge while the main AI video stream is visible
+    /// - Parameters:
+    ///   - pipViewController: The AVPictureInPictureVideoCallViewController to configure
+    ///   - showAsOverlay: If true, shows as small corner badge; if false, shows centered (for no video fallback)
     @available(iOS 15.0, *)
-    private func setupProfilePictureForPiP(in pipViewController: AVPictureInPictureVideoCallViewController) {
+    private func setupProfilePictureForPiP(in pipViewController: AVPictureInPictureVideoCallViewController, showAsOverlay: Bool = true) {
         // Create a container for the profile picture
         let profileContainer = UIView()
-        profileContainer.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        profileContainer.backgroundColor = showAsOverlay ? UIColor.black.withAlphaComponent(0.7) : UIColor.black.withAlphaComponent(0.3)
+        profileContainer.layer.cornerRadius = showAsOverlay ? 8 : 16
         profileContainer.translatesAutoresizingMaskIntoConstraints = false
+        profileContainer.accessibilityIdentifier = "pip_profile_container"
         pipViewController.view.addSubview(profileContainer)
         
         // Create profile image view
@@ -942,9 +1041,13 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         profileImageView.backgroundColor = UIColor.systemGray
         profileImageView.translatesAutoresizingMaskIntoConstraints = false
         
+        // Size based on whether it's an overlay or main content
+        let imageSize: CGFloat = showAsOverlay ? 32 : 80
+        let borderWidth: CGFloat = showAsOverlay ? 2 : 3
+        
         // Set circular shape
-        profileImageView.layer.cornerRadius = 40
-        profileImageView.layer.borderWidth = 3
+        profileImageView.layer.cornerRadius = imageSize / 2
+        profileImageView.layer.borderWidth = borderWidth
         profileImageView.layer.borderColor = UIColor.white.cgColor
         profileImageView.layer.shadowColor = UIColor.black.cgColor
         profileImageView.layer.shadowOffset = CGSize(width: 0, height: 2)
@@ -953,51 +1056,70 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         
         profileContainer.addSubview(profileImageView)
         
-        // Create user name label
+        // Create AI coach name label (only show if not overlay mode)
         let nameLabel = UILabel()
-        nameLabel.text = userName
+        nameLabel.text = showAsOverlay ? nil : coachName
         nameLabel.textColor = .white
-        nameLabel.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        nameLabel.font = UIFont.systemFont(ofSize: showAsOverlay ? 10 : 14, weight: .semibold)
         nameLabel.textAlignment = .center
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        nameLabel.isHidden = showAsOverlay
         profileContainer.addSubview(nameLabel)
         
-        // Load profile image
-        if let imageURL = userProfileImageURL, let url = URL(string: imageURL) {
+        // Load profile image - use AI coach's profile image
+        if let imageURL = coachProfileImageURL, let url = URL(string: imageURL) {
             loadProfileImage(from: url) { [weak profileImageView] image in
                 DispatchQueue.main.async {
                     profileImageView?.image = image
                 }
             }
-        } else if let image = userProfileImage {
+        } else if let image = coachProfileImage {
             profileImageView.image = image
         } else {
-            // Set default placeholder (user initials)
-            profileImageView.image = generateDefaultProfileImage(for: userName)
+            // Set default placeholder with coach's initials
+            profileImageView.image = generateDefaultProfileImage(for: coachName)
         }
         
-        // Setup constraints
-        NSLayoutConstraint.activate([
-            // Profile container
-            profileContainer.centerXAnchor.constraint(equalTo: pipViewController.view.centerXAnchor),
-            profileContainer.centerYAnchor.constraint(equalTo: pipViewController.view.centerYAnchor),
-            profileContainer.widthAnchor.constraint(equalToConstant: 120),
-            profileContainer.heightAnchor.constraint(equalToConstant: 120),
-            
-            // Profile image
-            profileImageView.centerXAnchor.constraint(equalTo: profileContainer.centerXAnchor),
-            profileImageView.topAnchor.constraint(equalTo: profileContainer.topAnchor, constant: 10),
-            profileImageView.widthAnchor.constraint(equalToConstant: 80),
-            profileImageView.heightAnchor.constraint(equalToConstant: 80),
-            
-            // Name label
-            nameLabel.topAnchor.constraint(equalTo: profileImageView.bottomAnchor, constant: 8),
-            nameLabel.leadingAnchor.constraint(equalTo: profileContainer.leadingAnchor, constant: 8),
-            nameLabel.trailingAnchor.constraint(equalTo: profileContainer.trailingAnchor, constant: -8),
-            nameLabel.bottomAnchor.constraint(lessThanOrEqualTo: profileContainer.bottomAnchor, constant: -10)
-        ])
+        // Setup constraints based on mode
+        if showAsOverlay {
+            // Small corner overlay - top right
+            NSLayoutConstraint.activate([
+                // Profile container in top-right corner
+                profileContainer.topAnchor.constraint(equalTo: pipViewController.view.topAnchor, constant: 8),
+                profileContainer.trailingAnchor.constraint(equalTo: pipViewController.view.trailingAnchor, constant: -8),
+                profileContainer.widthAnchor.constraint(equalToConstant: 48),
+                profileContainer.heightAnchor.constraint(equalToConstant: 48),
+                
+                // Profile image centered in container
+                profileImageView.centerXAnchor.constraint(equalTo: profileContainer.centerXAnchor),
+                profileImageView.centerYAnchor.constraint(equalTo: profileContainer.centerYAnchor),
+                profileImageView.widthAnchor.constraint(equalToConstant: imageSize),
+                profileImageView.heightAnchor.constraint(equalToConstant: imageSize)
+            ])
+        } else {
+            // Centered for no-video fallback
+            NSLayoutConstraint.activate([
+                // Profile container centered
+                profileContainer.centerXAnchor.constraint(equalTo: pipViewController.view.centerXAnchor),
+                profileContainer.centerYAnchor.constraint(equalTo: pipViewController.view.centerYAnchor),
+                profileContainer.widthAnchor.constraint(equalToConstant: 120),
+                profileContainer.heightAnchor.constraint(equalToConstant: 120),
+                
+                // Profile image
+                profileImageView.centerXAnchor.constraint(equalTo: profileContainer.centerXAnchor),
+                profileImageView.topAnchor.constraint(equalTo: profileContainer.topAnchor, constant: 10),
+                profileImageView.widthAnchor.constraint(equalToConstant: imageSize),
+                profileImageView.heightAnchor.constraint(equalToConstant: imageSize),
+                
+                // Name label
+                nameLabel.topAnchor.constraint(equalTo: profileImageView.bottomAnchor, constant: 8),
+                nameLabel.leadingAnchor.constraint(equalTo: profileContainer.leadingAnchor, constant: 8),
+                nameLabel.trailingAnchor.constraint(equalTo: profileContainer.trailingAnchor, constant: -8),
+                nameLabel.bottomAnchor.constraint(lessThanOrEqualTo: profileContainer.bottomAnchor, constant: -10)
+            ])
+        }
         
-        print("📺 PiP: Profile picture setup completed for user: \(userName)")
+        print("📺 PiP: Profile picture setup completed for AI coach: \(coachName) (overlay mode: \(showAsOverlay))")
     }
     
     private func loadProfileImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
@@ -1104,45 +1226,85 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         pipVideoCallVC.preferredContentSize = CGSize(width: 320, height: 240)
         pipVideoCallVC.view.backgroundColor = .black
         
-        // Add user profile picture to PiP view
-        setupProfilePictureForPiP(in: pipVideoCallVC)
-        
         pipVideoCallViewControllerStorage = pipVideoCallVC
         
-        // Create a sample buffer display layer for PiP
-        let sampleBufferLayer = AVSampleBufferDisplayLayer()
-        sampleBufferLayer.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
-        sampleBufferLayer.videoGravity = .resizeAspect
+        // Get the actual video view that's rendering the AI stream
+        var sourceView: VideoView?
+        let hasVideoTrack: Bool
         
-        // Add the layer to the PiP view controller's view
-        pipVideoCallVC.view.layer.insertSublayer(sampleBufferLayer, at: 0)
-        
-        // Get the actual video view that's rendering
-        let sourceView: UIView
         if isNewUIInitialized && newRemoteVideoView.track != nil {
             sourceView = newRemoteVideoView
-            print("📺 PiP: Using newRemoteVideoView as source")
+            hasVideoTrack = true
+            print("📺 PiP: ✅ Using newRemoteVideoView as source")
+            print("   - Has track: YES")
+            print("   - Track: \(newRemoteVideoView.track!)")
+            print("   - Frame: \(newRemoteVideoView.frame)")
+            print("   - IsHidden: \(newRemoteVideoView.isHidden)")
+            print("   - Alpha: \(newRemoteVideoView.alpha)")
+            print("   - Superview: \(newRemoteVideoView.superview != nil ? "YES" : "NO")")
         } else if let firstVideoView = videoViews.values.first(where: { $0.track != nil }) {
             sourceView = firstVideoView
-            print("📺 PiP: Using first available video view as source")
+            hasVideoTrack = true
+            print("📺 PiP: ✅ Using first available video view as source")
+            print("   - Has track: YES")
+            print("   - Track: \(firstVideoView.track!)")
+            print("   - Frame: \(firstVideoView.frame)")
+            print("   - IsHidden: \(firstVideoView.isHidden)")
+            print("   - Alpha: \(firstVideoView.alpha)")
         } else {
-            // Create a placeholder view if no video is available yet
-            sourceView = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
-            sourceView.backgroundColor = .black
-            print("⚠️ PiP: Using placeholder view - no video track available yet")
+            hasVideoTrack = false
+            print("📺 PiP: ⚠️ No video track available yet")
+            print("   - isNewUIInitialized: \(isNewUIInitialized)")
+            print("   - newRemoteVideoView.track: \(isNewUIInitialized ? (newRemoteVideoView.track != nil ? "YES" : "NO") : "N/A")")
+            print("   - videoViews.count: \(videoViews.count)")
+            print("   - Will show profile picture only")
         }
         
-        // Ensure the source view is in the view hierarchy and visible
-        if sourceView.superview == nil {
-            view.addSubview(sourceView)
-            sourceView.isHidden = true // Hidden but in hierarchy for rendering
+        // Add AI coach profile picture to PiP view
+        // Show as small overlay badge if video is available, centered if no video
+        setupProfilePictureForPiP(in: pipVideoCallVC, showAsOverlay: hasVideoTrack)
+        
+        // If we have a video source, ensure it's visible and rendering
+        if let videoView = sourceView {
+            // CRITICAL: The video view MUST be visible for PiP to capture it
+            videoView.isHidden = false
+            videoView.alpha = 1.0
+            
+            // Ensure it's in the view hierarchy
+            if videoView.superview == nil {
+                view.addSubview(videoView)
+            }
+            
+            // Force layout to ensure rendering
+            videoView.setNeedsLayout()
+            videoView.layoutIfNeeded()
+            
+            print("📺 PiP: Video view is visible and in hierarchy - superview: \(videoView.superview != nil), frame: \(videoView.frame)")
         }
         
         // Create content source with the video call view controller
-        let contentSource = AVPictureInPictureController.ContentSource(
-            activeVideoCallSourceView: sourceView,
-            contentViewController: pipVideoCallVC
-        )
+        let contentSource: AVPictureInPictureController.ContentSource
+        
+        if let videoView = sourceView {
+            // Use the actual video view as the source
+            contentSource = AVPictureInPictureController.ContentSource(
+                activeVideoCallSourceView: videoView,
+                contentViewController: pipVideoCallVC
+            )
+            print("📺 PiP: Content source created with video view")
+        } else {
+            // No video available - use a placeholder
+            let placeholderView = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+            placeholderView.backgroundColor = .black
+            view.addSubview(placeholderView)
+            placeholderView.isHidden = true
+            
+            contentSource = AVPictureInPictureController.ContentSource(
+                activeVideoCallSourceView: placeholderView,
+                contentViewController: pipVideoCallVC
+            )
+            print("📺 PiP: Content source created with placeholder view")
+        }
         
         // Create PiP controller - handle optional initialization
         let pipController: AVPictureInPictureController? = AVPictureInPictureController(contentSource: contentSource)
@@ -1184,20 +1346,64 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         print("✅ PiP: Picture-in-Picture setup completed")
     }
     
+    /// Update PiP profile picture overlay based on video availability
+    @available(iOS 15.0, *)
+    private func updatePipProfileOverlay() {
+        guard let pipVideoCallVC = pipVideoCallViewControllerStorage as? AVPictureInPictureVideoCallViewController else {
+            return
+        }
+        
+        // Check if we now have a video track
+        let hasVideoTrack = (isNewUIInitialized && newRemoteVideoView.track != nil) ||
+                           videoViews.values.contains(where: { $0.track != nil })
+        
+        // Remove existing profile container
+        if let existingContainer = pipVideoCallVC.view.subviews.first(where: { 
+            $0.accessibilityIdentifier == "pip_profile_container" 
+        }) {
+            existingContainer.removeFromSuperview()
+        }
+        
+        // Re-add profile picture with correct mode
+        setupProfilePictureForPiP(in: pipVideoCallVC, showAsOverlay: hasVideoTrack)
+        print("📺 PiP: Updated profile overlay (hasVideoTrack: \(hasVideoTrack))")
+    }
+    
     @available(iOS 15.0, *)
     private func startPictureInPicture() {
         print("📺 PiP: Starting Picture-in-Picture mode")
         
-        // Ensure video views are visible and in hierarchy
+        // CRITICAL: Ensure video views are visible and actively rendering
+        // PiP cannot capture content from hidden or alpha=0 views
         if isNewUIInitialized {
             newRemoteVideoView.isHidden = false
             newRemoteVideoContainer.isHidden = false
             newRemoteVideoView.alpha = 1.0
             newRemoteVideoContainer.alpha = 1.0
+            
+            // Force layout and rendering
+            newRemoteVideoView.setNeedsLayout()
+            newRemoteVideoView.layoutIfNeeded()
+            newRemoteVideoContainer.setNeedsLayout()
+            newRemoteVideoContainer.layoutIfNeeded()
+            
+            print("📺 PiP: Remote video view made visible and rendered")
+            print("   - Track: \(newRemoteVideoView.track != nil ? "YES" : "NO")")
+            print("   - Frame: \(newRemoteVideoView.frame)")
+            print("   - Superview: \(newRemoteVideoView.superview != nil ? "YES" : "NO")")
         }
-        for (_, videoView) in videoViews {
+        
+        for (participantId, videoView) in videoViews {
             videoView.isHidden = false
             videoView.alpha = 1.0
+            
+            // Force layout and rendering
+            videoView.setNeedsLayout()
+            videoView.layoutIfNeeded()
+            
+            print("📺 PiP: Video view \(participantId) made visible")
+            print("   - Track: \(videoView.track != nil ? "YES" : "NO")")
+            print("   - Frame: \(videoView.frame)")
         }
         
         // If PiP wasn't set up, set it up now
@@ -1256,6 +1462,50 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
             print("⏹️ PiP: Stopping Picture-in-Picture mode")
             controller.stopPictureInPicture()
         }
+        
+        // Stop monitoring when PiP stops
+        stopVideoRenderingMonitor()
+    }
+    
+    /// Start monitoring video views to ensure they stay visible during PiP
+    private func startVideoRenderingMonitor() {
+        // Stop any existing monitor
+        stopVideoRenderingMonitor()
+        
+        print("📺 PiP: Starting video rendering monitor")
+        
+        // Create a timer to periodically check and refresh video view visibility
+        videoRenderingMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                // Ensure video views remain visible and rendering
+                if self.isNewUIInitialized {
+                    if self.newRemoteVideoView.isHidden || self.newRemoteVideoView.alpha < 1.0 {
+                        print("⚠️ PiP Monitor: Remote video view became hidden, restoring visibility")
+                        self.newRemoteVideoView.isHidden = false
+                        self.newRemoteVideoView.alpha = 1.0
+                        self.newRemoteVideoView.setNeedsDisplay()
+                    }
+                }
+                
+                for (participantId, videoView) in self.videoViews {
+                    if videoView.isHidden || videoView.alpha < 1.0 {
+                        print("⚠️ PiP Monitor: Video view \(participantId) became hidden, restoring visibility")
+                        videoView.isHidden = false
+                        videoView.alpha = 1.0
+                        videoView.setNeedsDisplay()
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Stop monitoring video views
+    private func stopVideoRenderingMonitor() {
+        videoRenderingMonitorTimer?.invalidate()
+        videoRenderingMonitorTimer = nil
+        print("📺 PiP: Stopped video rendering monitor")
     }
     
     // MARK: - Screen Share Modal
@@ -1308,28 +1558,41 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // Create and configure the broadcast picker view
         let systemBroadcastPickerView = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
         systemBroadcastPickerView.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
-        // Only set a specific extension if provided by the host app; otherwise, let iOS show the list.
-        // picker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
         systemBroadcastPickerView.showsMicrophoneButton = false
         
-        // Store reference to prevent deallocation and allow dismissal
+        // Add to view hierarchy temporarily (required for the button to work)
+        systemBroadcastPickerView.alpha = 0.01 // Nearly invisible
+        view.addSubview(systemBroadcastPickerView)
+        
+        // Store reference to prevent deallocation
         self.systemBroadcastPickerView = systemBroadcastPickerView
         
         // Find the button in the picker and trigger it programmatically
         // The button might be nested, so we need to search recursively
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.triggerBroadcastPickerButton(in: systemBroadcastPickerView)
+            
+            // Remove the picker view after triggering (the system alert is now shown)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                systemBroadcastPickerView.removeFromSuperview()
+            }
         }
     }
     
     private func dismissBroadcastPicker() {
-        // Dismiss the broadcast picker if it's still visible
+        // The system broadcast picker alert is controlled by iOS and will auto-dismiss
+        // when broadcast starts. We just need to clean up our references.
         if let picker = systemBroadcastPickerView {
             DispatchQueue.main.async {
                 picker.removeFromSuperview()
                 self.systemBroadcastPickerView = nil
+                print("📺 Broadcast picker view removed")
             }
         }
+        
+        // Note: The system alert picker cannot be programmatically dismissed.
+        // iOS automatically dismisses it when the broadcast starts or user cancels.
+        print("📺 Waiting for system to dismiss broadcast picker alert...")
     }
     
     private func triggerBroadcastPickerButton(in view: UIView) {
@@ -2693,6 +2956,8 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     var timer:Timer?
     private var userProfileImageURL: String?
     private var userProfileImage: UIImage?
+    private var coachProfileImageURL: String?
+    private var coachProfileImage: UIImage?
     
     // UI elements
     var leaveRoomButton: UIButton!
@@ -2734,8 +2999,9 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
     private var pipControllerStorage: Any?
     private var pipVideoCallViewControllerStorage: Any?
     private var pipPossibleObservation: NSKeyValueObservation?
+    private var videoRenderingMonitorTimer: Timer?
    
-    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool, enableScreenShare: Bool, userProfileImageURL: String? = nil) {
+    init(urlString: String, token: String, userName: String, coachingTitle: String, maxTime: Int, coachName: String, testMode: Bool, enableScreenShare: Bool, userProfileImageURL: String? = nil, coachProfileImageURL: String? = nil) {
         self.roomURLString = urlString
         self.token = MeetingToken(stringValue: token)
         self.userName = userName
@@ -2745,6 +3011,7 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         self.isTestMode = testMode;
         self.enableScreenShare = enableScreenShare;
         self.userProfileImageURL = userProfileImageURL;
+        self.coachProfileImageURL = coachProfileImageURL;
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -2777,6 +3044,10 @@ class DailyCallViewController: UIViewController, AudioAnalyzerDelegate, ServerEv
         // Stop audio monitoring
         audioMonitoringTimer?.invalidate()
         audioMonitoringTimer = nil
+        
+        // Stop video rendering monitor
+        videoRenderingMonitorTimer?.invalidate()
+        videoRenderingMonitorTimer = nil
         
         // Stop all audio analyzers
         for (_, analyzer) in audioAnalyzers {
@@ -3563,7 +3834,10 @@ extension DailyCallViewController: CallClientDelegate {
         
         isScreenSharingActive = true
         
-        // Dismiss the broadcast picker when screen share starts
+        // Update button to show "STOP SCREEN SHARE"
+        updateScreenShareButton()
+        
+        // Dismiss the broadcast picker immediately when screen share starts
         dismissBroadcastPicker()
         
         callClient.updateInputs(
@@ -3575,30 +3849,53 @@ extension DailyCallViewController: CallClientDelegate {
         print("📺 PiP: Setting up Picture-in-Picture for screen share")
         if #available(iOS 15.0, *) {
             DispatchQueue.main.async {
-                // Force reinitialize PiP with current state
+                // STEP 1: Ensure video views are visible and rendering
+                print("📺 PiP: Step 1 - Making video views visible")
+                if self.isNewUIInitialized {
+                    self.newRemoteVideoView.isHidden = false
+                    self.newRemoteVideoContainer.isHidden = false
+                    self.newRemoteVideoView.alpha = 1.0
+                    self.newRemoteVideoContainer.alpha = 1.0
+                    self.view.bringSubviewToFront(self.newRemoteVideoContainer)
+                    print("   - Remote video view made visible")
+                }
+                
+                for (_, videoView) in self.videoViews {
+                    videoView.isHidden = false
+                    videoView.alpha = 1.0
+                    if let superview = videoView.superview {
+                        superview.bringSubviewToFront(videoView)
+                    }
+                }
+                
+                // STEP 2: Force reinitialize PiP with current state
+                print("📺 PiP: Step 2 - Reinitializing PiP controller")
                 self.pipPossibleObservation?.invalidate()
                 self.pipControllerStorage = nil
                 
-                // Setup fresh PiP
+                // STEP 3: Setup fresh PiP
+                print("📺 PiP: Step 3 - Setting up fresh PiP")
                 self.setupPictureInPicture()
                 
-                // Wait for setup to complete, then start
+                // STEP 4: Wait for setup to complete, then start
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    print("📺 PiP: Starting Picture-in-Picture after setup")
+                    print("📺 PiP: Step 4 - Starting Picture-in-Picture")
                     self.startPictureInPicture()
                     
-                    // Verify after a delay
+                    // STEP 5: Verify after a delay
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         if let controller = self.pipControllerStorage as? AVPictureInPictureController {
-                            print("📺 PiP: Final status - isPossible: \(controller.isPictureInPicturePossible), isActive: \(controller.isPictureInPictureActive)")
+                            print("📺 PiP: Step 5 - Verification")
+                            print("   - isPossible: \(controller.isPictureInPicturePossible)")
+                            print("   - isActive: \(controller.isPictureInPictureActive)")
                             
                             if controller.isPictureInPictureActive {
-                                print("✅ PiP is active and showing profile picture")
+                                print("✅ PiP is active and showing AI video stream")
                             } else if controller.isPictureInPicturePossible {
                                 print("⚠️ PiP is possible but not active - attempting one more time")
                                 self.attemptPipStart()
                             } else {
-                                print("ℹ️ PiP: Not possible - app will stay minimized during screen share")
+                                print("ℹ️ PiP: Not possible yet - will retry when ready")
                             }
                         }
                     }
@@ -3610,9 +3907,12 @@ extension DailyCallViewController: CallClientDelegate {
     public func callClientDidDetectEndOfSystemBroadcast(
         _ callClient: CallClient
     ) {
-        print("System broadcast ended")
+        print("🎬 System broadcast ended - screen sharing stopped")
         
         isScreenSharingActive = false
+        
+        // Update button to show "SCREEN SHARE"
+        updateScreenShareButton()
 
         callClient.updateInputs(
             .set(screenVideo: .set(isEnabled: .set(false))),
@@ -3835,6 +4135,17 @@ extension DailyCallViewController: CallClientDelegate {
             // Also update new UI if active
             if self.isNewUIInitialized && videoTrack != nil {
                 self.attachVideoTrack(videoTrack!, for: participant.id, isLocal: false)
+            }
+            
+            // Update PiP overlay if PiP is active and this is the AI participant
+            if #available(iOS 15.0, *) {
+                if let pipController = self.pipControllerStorage as? AVPictureInPictureController,
+                   pipController.isPictureInPictureActive {
+                    DispatchQueue.main.async {
+                        self.updatePipProfileOverlay()
+                        print("📺 PiP: Updated overlay after remote participant video track changed")
+                    }
+                }
             }
             
             // Add name label for remote participant
@@ -4155,6 +4466,40 @@ extension DailyCallViewController: AVPictureInPictureControllerDelegate {
     
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         print("📺 PiP Delegate: Will start Picture-in-Picture")
+        
+        // CRITICAL: Proactively ensure video views are visible before PiP starts
+        // PiP captures from visible views only
+        DispatchQueue.main.async {
+            if self.isNewUIInitialized {
+                self.newRemoteVideoView.isHidden = false
+                self.newRemoteVideoContainer.isHidden = false
+                self.newRemoteVideoView.alpha = 1.0
+                self.newRemoteVideoContainer.alpha = 1.0
+                
+                // Bring to front to ensure it's visible
+                self.view.bringSubviewToFront(self.newRemoteVideoContainer)
+                
+                // Force rendering update
+                self.newRemoteVideoView.setNeedsDisplay()
+                self.newRemoteVideoView.setNeedsLayout()
+                self.newRemoteVideoView.layoutIfNeeded()
+                
+                print("📺 PiP: Pre-start - remote video view prepared")
+                print("   - Has track: \(self.newRemoteVideoView.track != nil)")
+                print("   - Is visible: \(!self.newRemoteVideoView.isHidden)")
+                print("   - Frame: \(self.newRemoteVideoView.frame)")
+            }
+            
+            for (participantId, videoView) in self.videoViews {
+                videoView.isHidden = false
+                videoView.alpha = 1.0
+                videoView.setNeedsDisplay()
+                videoView.setNeedsLayout()
+                videoView.layoutIfNeeded()
+                
+                print("📺 PiP: Pre-start - video view \(participantId) prepared")
+            }
+        }
     }
     
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -4162,21 +4507,54 @@ extension DailyCallViewController: AVPictureInPictureControllerDelegate {
         print("   - Controller: \(pictureInPictureController)")
         print("   - isPictureInPictureActive: \(pictureInPictureController.isPictureInPictureActive)")
         
-        // Ensure video views stay visible and continue rendering
+        // CRITICAL: Ensure video views stay visible and continue rendering
+        // Even when app goes to background, these views must render for PiP to work
         DispatchQueue.main.async {
-            // Keep the remote video view and its container visible
+            // Keep the remote video view and its container visible for rendering
             if self.isNewUIInitialized {
                 self.newRemoteVideoView.isHidden = false
                 self.newRemoteVideoContainer.isHidden = false
+                self.newRemoteVideoView.alpha = 1.0
                 self.newRemoteVideoContainer.alpha = 1.0
-                print("📺 PiP: Ensured remote video views remain visible")
+                
+                // CRITICAL: Keep in view hierarchy at high z-order
+                self.view.bringSubviewToFront(self.newRemoteVideoContainer)
+                
+                // Force layout and display update
+                self.newRemoteVideoView.setNeedsDisplay()
+                self.newRemoteVideoView.setNeedsLayout()
+                self.newRemoteVideoView.layoutIfNeeded()
+                
+                print("📺 PiP: Remote video view actively rendering")
+                print("   - Has track: \(self.newRemoteVideoView.track != nil)")
+                print("   - Frame: \(self.newRemoteVideoView.frame)")
+                print("   - Window: \(self.newRemoteVideoView.window != nil)")
             }
             
-            // Keep video rendering active
-            for (_, videoView) in self.videoViews {
+            // Keep all video views rendering active
+            for (participantId, videoView) in self.videoViews {
                 videoView.isHidden = false
                 videoView.alpha = 1.0
+                
+                // Force to front and update
+                if let superview = videoView.superview {
+                    superview.bringSubviewToFront(videoView)
+                }
+                
+                videoView.setNeedsDisplay()
+                videoView.setNeedsLayout()
+                videoView.layoutIfNeeded()
+                
+                print("📺 PiP: Video view \(participantId) actively rendering")
+                print("   - Has track: \(videoView.track != nil)")
+                print("   - Frame: \(videoView.frame)")
             }
+            
+            // Update profile overlay to reflect current video state
+            self.updatePipProfileOverlay()
+            
+            // Monitor video rendering to ensure it stays active
+            self.startVideoRenderingMonitor()
         }
     }
     
@@ -4200,6 +4578,9 @@ extension DailyCallViewController: AVPictureInPictureControllerDelegate {
     
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         print("⏹️ PiP Delegate: Picture-in-Picture stopped")
+        
+        // Stop video rendering monitor
+        stopVideoRenderingMonitor()
         
         // Return to full screen mode
         DispatchQueue.main.async {
