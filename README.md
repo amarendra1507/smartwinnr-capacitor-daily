@@ -43,12 +43,12 @@ echo(options: { value: string; }) => Promise<{ value: string; }>
 ### joinCall(...)
 
 ```typescript
-joinCall(options: { url: string; token: string; }) => Promise<{ isCallJoined: boolean; }>
+joinCall(options: { url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; }) => Promise<{ isCallJoined: boolean; }>
 ```
 
-| Param         | Type                                         |
-| ------------- | -------------------------------------------- |
-| **`options`** | <code>{ url: string; token: string; }</code> |
+| Param         | Type                                                                                                                                                                                                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`options`** | <code>{ url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; }</code> |
 
 **Returns:** <code>Promise&lt;{ isCallJoined: boolean; }&gt;</code>
 
