@@ -71,20 +71,40 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let enableScreenShare = call.getBool("enableScreenShare") ?? false
-                
+        let audioModeOnly = call.getBool("audio_mode_only") ?? false
+        let userProfileImageURL = call.getString("userProfileImageURL")
+        let coachProfileImageURL = call.getString("coachProfileImageURL")
+
+        print("=== SmartWinnrDailyPlugin joinCall ===")
+        print("  url: \(urlString)")
+        print("  token: \(tokenString.prefix(20))...")
+        print("  userName: \(userNameString)")
+        print("  coachName: \(coachName)")
+        print("  coachingTitle: \(coachingTitle)")
+        print("  maximumTime: \(maxTime)")
+        print("  testMode: \(testMode)")
+        print("  enableScreenShare: \(enableScreenShare)")
+        print("  audio_mode_only: \(audioModeOnly)")
+        print("  userProfileImageURL: \(userProfileImageURL ?? "nil")")
+        print("  coachProfileImageURL: \(coachProfileImageURL ?? "nil")")
+        print("======================================")
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
+
             // Create and initialize the view controller
             let viewController = DailyCallViewController(
-                urlString: urlString, 
-                token: tokenString, 
-                userName: userNameString, 
-                coachingTitle: coachingTitle, 
-                maxTime: maxTime, 
-                coachName: coachName, 
+                urlString: urlString,
+                token: tokenString,
+                userName: userNameString,
+                coachingTitle: coachingTitle,
+                maxTime: maxTime,
+                coachName: coachName,
                 testMode: testMode,
-                enableScreenShare: enableScreenShare
+                enableScreenShare: enableScreenShare,
+                audioModeOnly: audioModeOnly,
+                userProfileImageURL: userProfileImageURL,
+                coachProfileImageURL: coachProfileImageURL
             )
             
             // Store the reference
