@@ -149,12 +149,7 @@ extension DailyCallViewController {
         for container in [newLocalVideoContainer, newRemoteVideoContainer] {
             container.backgroundColor = tileBg
             container.layer.cornerRadius = cornerRadius
-            container.layer.borderWidth = 1
-            container.layer.borderColor = UIColor.systemGray4.cgColor
-            container.layer.shadowColor = UIColor.black.cgColor
-            container.layer.shadowOffset = CGSize(width: 0, height: 2)
-            container.layer.shadowRadius = 8
-            container.layer.shadowOpacity = 0.12
+            container.layer.masksToBounds = true
             container.translatesAutoresizingMaskIntoConstraints = false
         }
 
@@ -200,27 +195,44 @@ extension DailyCallViewController {
                                          name: String, imageURL: String?) {
         avatarView.backgroundColor = UIColor(red: 0.23, green: 0.31, blue: 0.39, alpha: 1.0) // #3a4f64
         avatarView.layer.cornerRadius = 12
-        avatarView.layer.masksToBounds = true
+        // Don't use masksToBounds — it clips the speaking border/shadow animation.
+        // Child views use clipsToBounds individually where needed.
+        avatarView.clipsToBounds = false
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(avatarView)
+
+        // Background fill (clipped to corner radius so content stays rounded)
+        let bgFill = UIView()
+        bgFill.backgroundColor = UIColor(red: 0.23, green: 0.31, blue: 0.39, alpha: 1.0)
+        bgFill.layer.cornerRadius = 12
+        bgFill.layer.masksToBounds = true
+        bgFill.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.addSubview(bgFill)
 
         NSLayoutConstraint.activate([
             avatarView.topAnchor.constraint(equalTo: container.topAnchor),
             avatarView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             avatarView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             avatarView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            bgFill.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            bgFill.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            bgFill.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            bgFill.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
         ])
 
-        // Avatar image (circular)
-        let imageSize: CGFloat = 64
+        // Avatar image (circular) — size scales with container height for proper proportions
+        // Avatar image (circular) — proportional to container so it adapts to all orientations
         let imageView = UIImageView()
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
-        imageView.layer.cornerRadius = imageSize / 2
-        imageView.layer.borderWidth = 2
-        imageView.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+        imageView.layer.borderWidth = 3
+        imageView.layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.addSubview(imageView)
+        bgFill.addSubview(imageView)
+
+        // Tag for dynamic cornerRadius updates in viewDidLayoutSubviews
+        imageView.tag = 9001
 
         // Load image or show initials
         if let urlStr = imageURL, let url = URL(string: urlStr) {
@@ -233,12 +245,12 @@ extension DailyCallViewController {
 
         // Audio icon badge (shows mic icon to indicate audio-only)
         let micBadge = UIView()
-        micBadge.backgroundColor = UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 0.2) // green tint
-        micBadge.layer.cornerRadius = 16
+        micBadge.backgroundColor = UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 0.2)
+        micBadge.layer.cornerRadius = 18
         micBadge.layer.borderWidth = 1
         micBadge.layer.borderColor = UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 0.3).cgColor
         micBadge.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.addSubview(micBadge)
+        bgFill.addSubview(micBadge)
 
         let micIcon = UIImageView(image: UIImage(systemName: "mic.fill"))
         micIcon.tintColor = UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0)
@@ -246,27 +258,42 @@ extension DailyCallViewController {
         micIcon.translatesAutoresizingMaskIntoConstraints = false
         micBadge.addSubview(micIcon)
 
-        NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor, constant: -10),
-            imageView.widthAnchor.constraint(equalToConstant: imageSize),
-            imageView.heightAnchor.constraint(equalToConstant: imageSize),
+        // Avatar = 45% of container height, clamped between 80–180pt
+        let avatarH = imageView.heightAnchor.constraint(equalTo: bgFill.heightAnchor, multiplier: 0.45)
+        avatarH.priority = UILayoutPriority(900)
 
-            micBadge.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
+        NSLayoutConstraint.activate([
+            avatarH,
+            imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor),
+            imageView.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            imageView.heightAnchor.constraint(lessThanOrEqualToConstant: 180),
+            imageView.centerXAnchor.constraint(equalTo: bgFill.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: bgFill.centerYAnchor, constant: -20),
+
+            micBadge.centerXAnchor.constraint(equalTo: bgFill.centerXAnchor),
             micBadge.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 10),
-            micBadge.widthAnchor.constraint(equalToConstant: 32),
-            micBadge.heightAnchor.constraint(equalToConstant: 32),
+            micBadge.widthAnchor.constraint(equalToConstant: 36),
+            micBadge.heightAnchor.constraint(equalToConstant: 36),
 
             micIcon.centerXAnchor.constraint(equalTo: micBadge.centerXAnchor),
             micIcon.centerYAnchor.constraint(equalTo: micBadge.centerYAnchor),
-            micIcon.widthAnchor.constraint(equalToConstant: 18),
-            micIcon.heightAnchor.constraint(equalToConstant: 18),
+            micIcon.widthAnchor.constraint(equalToConstant: 20),
+            micIcon.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
 
     // MARK: - Local Tile
 
     private func setupLocalTile() {
+        // Card styling on the tile wrapper
+        localTileWrapper.backgroundColor = .white
+        localTileWrapper.layer.cornerRadius = 16
+        localTileWrapper.layer.borderWidth = 1
+        localTileWrapper.layer.borderColor = UIColor.systemGray4.withAlphaComponent(0.5).cgColor
+        localTileWrapper.layer.shadowColor = UIColor.black.cgColor
+        localTileWrapper.layer.shadowOffset = CGSize(width: 0, height: 2)
+        localTileWrapper.layer.shadowRadius = 10
+        localTileWrapper.layer.shadowOpacity = 0.08
         localTileWrapper.translatesAutoresizingMaskIntoConstraints = false
         localTileWrapper.addSubview(newLocalVideoContainer)
 
@@ -298,21 +325,23 @@ extension DailyCallViewController {
         rightStack.translatesAutoresizingMaskIntoConstraints = false
         localIndicatorRow.addSubview(rightStack)
 
+        let cardPadding: CGFloat = 8
+
         NSLayoutConstraint.activate([
-            newLocalVideoContainer.topAnchor.constraint(equalTo: localTileWrapper.topAnchor),
-            newLocalVideoContainer.leadingAnchor.constraint(equalTo: localTileWrapper.leadingAnchor),
-            newLocalVideoContainer.trailingAnchor.constraint(equalTo: localTileWrapper.trailingAnchor),
+            newLocalVideoContainer.topAnchor.constraint(equalTo: localTileWrapper.topAnchor, constant: cardPadding),
+            newLocalVideoContainer.leadingAnchor.constraint(equalTo: localTileWrapper.leadingAnchor, constant: cardPadding),
+            newLocalVideoContainer.trailingAnchor.constraint(equalTo: localTileWrapper.trailingAnchor, constant: -cardPadding),
 
             newLocalVideoView.topAnchor.constraint(equalTo: newLocalVideoContainer.topAnchor),
             newLocalVideoView.leadingAnchor.constraint(equalTo: newLocalVideoContainer.leadingAnchor),
             newLocalVideoView.trailingAnchor.constraint(equalTo: newLocalVideoContainer.trailingAnchor),
             newLocalVideoView.bottomAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor),
 
-            localIndicatorRow.topAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: 2),
-            localIndicatorRow.leadingAnchor.constraint(equalTo: localTileWrapper.leadingAnchor),
-            localIndicatorRow.trailingAnchor.constraint(equalTo: localTileWrapper.trailingAnchor),
-            localIndicatorRow.heightAnchor.constraint(equalToConstant: 32),
-            localIndicatorRow.bottomAnchor.constraint(equalTo: localTileWrapper.bottomAnchor),
+            localIndicatorRow.topAnchor.constraint(equalTo: newLocalVideoContainer.bottomAnchor, constant: 4),
+            localIndicatorRow.leadingAnchor.constraint(equalTo: localTileWrapper.leadingAnchor, constant: cardPadding),
+            localIndicatorRow.trailingAnchor.constraint(equalTo: localTileWrapper.trailingAnchor, constant: -cardPadding),
+            localIndicatorRow.heightAnchor.constraint(equalToConstant: 36),
+            localIndicatorRow.bottomAnchor.constraint(equalTo: localTileWrapper.bottomAnchor, constant: -cardPadding),
 
             rightStack.trailingAnchor.constraint(equalTo: localIndicatorRow.trailingAnchor),
             rightStack.centerYAnchor.constraint(equalTo: localIndicatorRow.centerYAnchor),
@@ -322,6 +351,15 @@ extension DailyCallViewController {
     // MARK: - Remote Tile
 
     private func setupRemoteTile() {
+        // Card styling on the tile wrapper
+        remoteTileWrapper.backgroundColor = .white
+        remoteTileWrapper.layer.cornerRadius = 16
+        remoteTileWrapper.layer.borderWidth = 1
+        remoteTileWrapper.layer.borderColor = UIColor.systemGray4.withAlphaComponent(0.5).cgColor
+        remoteTileWrapper.layer.shadowColor = UIColor.black.cgColor
+        remoteTileWrapper.layer.shadowOffset = CGSize(width: 0, height: 2)
+        remoteTileWrapper.layer.shadowRadius = 10
+        remoteTileWrapper.layer.shadowOpacity = 0.08
         remoteTileWrapper.translatesAutoresizingMaskIntoConstraints = false
         remoteTileWrapper.addSubview(newRemoteVideoContainer)
 
@@ -336,21 +374,23 @@ extension DailyCallViewController {
         newRemoteParticipantLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         remoteIndicatorRow.addSubview(newRemoteParticipantLabel)
 
+        let cardPadding: CGFloat = 8
+
         NSLayoutConstraint.activate([
-            newRemoteVideoContainer.topAnchor.constraint(equalTo: remoteTileWrapper.topAnchor),
-            newRemoteVideoContainer.leadingAnchor.constraint(equalTo: remoteTileWrapper.leadingAnchor),
-            newRemoteVideoContainer.trailingAnchor.constraint(equalTo: remoteTileWrapper.trailingAnchor),
+            newRemoteVideoContainer.topAnchor.constraint(equalTo: remoteTileWrapper.topAnchor, constant: cardPadding),
+            newRemoteVideoContainer.leadingAnchor.constraint(equalTo: remoteTileWrapper.leadingAnchor, constant: cardPadding),
+            newRemoteVideoContainer.trailingAnchor.constraint(equalTo: remoteTileWrapper.trailingAnchor, constant: -cardPadding),
 
             newRemoteVideoView.topAnchor.constraint(equalTo: newRemoteVideoContainer.topAnchor),
             newRemoteVideoView.leadingAnchor.constraint(equalTo: newRemoteVideoContainer.leadingAnchor),
             newRemoteVideoView.trailingAnchor.constraint(equalTo: newRemoteVideoContainer.trailingAnchor),
             newRemoteVideoView.bottomAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor),
 
-            remoteIndicatorRow.topAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: 2),
-            remoteIndicatorRow.leadingAnchor.constraint(equalTo: remoteTileWrapper.leadingAnchor),
-            remoteIndicatorRow.trailingAnchor.constraint(equalTo: remoteTileWrapper.trailingAnchor),
-            remoteIndicatorRow.heightAnchor.constraint(equalToConstant: 32),
-            remoteIndicatorRow.bottomAnchor.constraint(equalTo: remoteTileWrapper.bottomAnchor),
+            remoteIndicatorRow.topAnchor.constraint(equalTo: newRemoteVideoContainer.bottomAnchor, constant: 4),
+            remoteIndicatorRow.leadingAnchor.constraint(equalTo: remoteTileWrapper.leadingAnchor, constant: cardPadding),
+            remoteIndicatorRow.trailingAnchor.constraint(equalTo: remoteTileWrapper.trailingAnchor, constant: -cardPadding),
+            remoteIndicatorRow.heightAnchor.constraint(equalToConstant: 36),
+            remoteIndicatorRow.bottomAnchor.constraint(equalTo: remoteTileWrapper.bottomAnchor, constant: -cardPadding),
 
             newRemoteParticipantLabel.trailingAnchor.constraint(equalTo: remoteIndicatorRow.trailingAnchor),
             newRemoteParticipantLabel.centerYAnchor.constraint(equalTo: remoteIndicatorRow.centerYAnchor),
@@ -399,11 +439,28 @@ extension DailyCallViewController {
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         newScreenShareButton.isHidden = !enableScreenShare || isAudioModeOnly
 
+        // Settings gear button
+        let gearConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        newSettingsButton.setImage(UIImage(systemName: "gearshape.fill", withConfiguration: gearConfig), for: .normal)
+        newSettingsButton.tintColor = UIColor(red: 0.29, green: 0.31, blue: 0.34, alpha: 1.0)
+        newSettingsButton.backgroundColor = UIColor(red: 0.91, green: 0.93, blue: 0.93, alpha: 1.0)
+        newSettingsButton.layer.cornerRadius = 22
+        newSettingsButton.layer.masksToBounds = true
+        newSettingsButton.translatesAutoresizingMaskIntoConstraints = false
+        newSettingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
+        newSettingsButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
+        newSettingsButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        NSLayoutConstraint.activate([
+            newSettingsButton.widthAnchor.constraint(equalToConstant: 44),
+            newSettingsButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+
         controlsRow.axis = .horizontal
         controlsRow.spacing = 16
         controlsRow.alignment = .center
         controlsRow.distribution = .fill
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
+        controlsRow.addArrangedSubview(newSettingsButton)
         controlsRow.addArrangedSubview(newScreenShareButton)
         controlsRow.addArrangedSubview(newEndRolePlayButton)
         newContentContainerView.addSubview(controlsRow)
@@ -530,8 +587,9 @@ extension DailyCallViewController {
 
         if isLandscape {
             newMainStackView.axis = .horizontal
-            newMainStackView.spacing = isIPad ? 16 : 8 // tight spacing = more room for videos
-            applyVideoAspectRatio(0.85) // close to 1:1 — fills landscape height
+            newMainStackView.spacing = isIPad ? 16 : 12
+            // Use same ratio for both — the height constraint naturally limits tile width
+            applyVideoAspectRatio(isIPad ? 0.85 : 0.75)
         } else {
             newMainStackView.axis = .vertical
             newMainStackView.spacing = isIPad ? 16 : 10

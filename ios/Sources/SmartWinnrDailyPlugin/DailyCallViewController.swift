@@ -42,8 +42,9 @@ class DailyCallViewController: UIViewController {
     lazy var localIndicatorRow = UIView()
     lazy var remoteIndicatorRow = UIView()
 
-    // Controls row (End Role Play + Screen Share, matching web .controls)
+    // Controls row (End Role Play + Screen Share + Settings, matching web .controls)
     lazy var controlsRow = UIStackView()
+    lazy var newSettingsButton = UIButton()
 
     // Aspect ratio constraints (updated on orientation change)
     var localVideoAspectConstraint: NSLayoutConstraint?
@@ -308,28 +309,20 @@ class DailyCallViewController: UIViewController {
         self.view.addSubview(overlay)
         overlayView = overlay
 
-        // Gradient background using brand color rgb(0,0,201)
+        // Light background matching the page
+        let pageBg = UIColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1.0)
+        let textColor = UIColor(red: 34.0/255.0, green: 34.0/255.0, blue: 34.0/255.0, alpha: 1.0)
         let brandColor = UIColor(red: 0, green: 0, blue: 201.0/255.0, alpha: 1.0)
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.colors = [
-            brandColor.cgColor,
-            UIColor(red: 0, green: 0, blue: 140.0/255.0, alpha: 1.0).cgColor,  // darker shade
-            brandColor.cgColor,
-        ]
-        gradientLayer.locations = [0, 0.5, 1]
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
-        overlay.layer.insertSublayer(gradientLayer, at: 0)
+
+        overlay.backgroundColor = pageBg
         overlay.accessibilityIdentifier = "waiting_overlay"
+        overlayGradientLayer = nil // no gradient needed
 
-        // Store gradient for resize
-        overlayGradientLayer = gradientLayer
-
-        // Floating particles (subtle dots)
+        // Floating particles (subtle dots in brand color)
         for i in 0..<12 {
             let dot = UIView()
-            let size = CGFloat.random(in: 3...7)
-            dot.backgroundColor = UIColor.white.withAlphaComponent(CGFloat.random(in: 0.03...0.08))
+            let size = CGFloat.random(in: 4...8)
+            dot.backgroundColor = brandColor.withAlphaComponent(CGFloat.random(in: 0.04...0.10))
             dot.layer.cornerRadius = size / 2
             dot.translatesAutoresizingMaskIntoConstraints = false
             overlay.addSubview(dot)
@@ -357,7 +350,7 @@ class DailyCallViewController: UIViewController {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         overlay.addSubview(contentStack)
 
-        // AI Avatar with animated rings
+        // Avatar with animated rings
         let avatarSize: CGFloat = 88
         let avatarContainer = UIView()
         avatarContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -366,44 +359,36 @@ class DailyCallViewController: UIViewController {
             avatarContainer.heightAnchor.constraint(equalToConstant: avatarSize + 40),
         ])
 
-        // Outer pulse rings
+        // Outer pulse rings in brand color
+        var ringViews: [UIView] = []
         for i in 0..<3 {
             let ring = UIView()
             let ringSize = avatarSize + CGFloat(i + 1) * 14
             ring.layer.cornerRadius = ringSize / 2
             ring.layer.borderWidth = 1.5
-            ring.layer.borderColor = UIColor.white.withAlphaComponent(0.25 - Double(i) * 0.05).cgColor
+            ring.layer.borderColor = brandColor.withAlphaComponent(0.20 - Double(i) * 0.05).cgColor
             ring.backgroundColor = .clear
             ring.translatesAutoresizingMaskIntoConstraints = false
             avatarContainer.addSubview(ring)
+            ringViews.append(ring)
             NSLayoutConstraint.activate([
                 ring.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
                 ring.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
                 ring.widthAnchor.constraint(equalToConstant: ringSize),
                 ring.heightAnchor.constraint(equalToConstant: ringSize),
             ])
-            let pulse = CABasicAnimation(keyPath: "transform.scale")
-            pulse.fromValue = 0.95
-            pulse.toValue = 1.08
-            pulse.duration = 2.0 + Double(i) * 0.4
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            ring.layer.add(pulse, forKey: "ring_pulse")
         }
 
-        // Avatar circle
+        // Avatar circle with brand gradient
         let avatar = UIView()
-        avatar.backgroundColor = UIColor.white.withAlphaComponent(0.15)
         avatar.layer.cornerRadius = avatarSize / 2
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatarContainer.addSubview(avatar)
 
-        // Gradient on avatar
         let avatarGradient = CAGradientLayer()
         avatarGradient.colors = [
-            UIColor.white.withAlphaComponent(0.25).cgColor,
-            UIColor.white.withAlphaComponent(0.1).cgColor,
+            brandColor.cgColor,
+            UIColor(red: 0, green: 0, blue: 140.0/255.0, alpha: 1.0).cgColor,
         ]
         avatarGradient.startPoint = CGPoint(x: 0, y: 0)
         avatarGradient.endPoint = CGPoint(x: 1, y: 1)
@@ -411,7 +396,6 @@ class DailyCallViewController: UIViewController {
         avatarGradient.frame = CGRect(x: 0, y: 0, width: avatarSize, height: avatarSize)
         avatar.layer.addSublayer(avatarGradient)
 
-        // AI icon or initials
         let aiIcon = UIImageView(image: UIImage(systemName: "waveform.circle.fill"))
         aiIcon.tintColor = .white
         aiIcon.contentMode = .scaleAspectFit
@@ -429,16 +413,6 @@ class DailyCallViewController: UIViewController {
             aiIcon.heightAnchor.constraint(equalToConstant: 40),
         ])
 
-        // Breathing animation on avatar
-        let breathe = CABasicAnimation(keyPath: "transform.scale")
-        breathe.fromValue = 1.0
-        breathe.toValue = 1.06
-        breathe.duration = 2.5
-        breathe.autoreverses = true
-        breathe.repeatCount = .infinity
-        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        avatar.layer.add(breathe, forKey: "breathe")
-
         contentStack.addArrangedSubview(avatarContainer)
         contentStack.setCustomSpacing(28, after: avatarContainer)
 
@@ -447,7 +421,7 @@ class DailyCallViewController: UIViewController {
         titleLabel.text = coachingTitle
         titleLabel.textAlignment = .center
         titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textColor = .white
+        titleLabel.textColor = textColor
         titleLabel.numberOfLines = 2
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentStack.addArrangedSubview(titleLabel)
@@ -460,72 +434,46 @@ class DailyCallViewController: UIViewController {
         statusRow.alignment = .center
         statusRow.translatesAutoresizingMaskIntoConstraints = false
 
-        // Waveform bars — use height constraint animation (reliable with Auto Layout)
         let waveStack = UIStackView()
         waveStack.axis = .horizontal
         waveStack.spacing = 3
-        waveStack.alignment = .bottom
+        waveStack.alignment = .center
         waveStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let maxHeights: [CGFloat] = [6, 12, 8, 14]
-        let minHeights: [CGFloat] = [2, 4, 3, 5]
-        var heightConstraints: [NSLayoutConstraint] = []
+        let barHeights: [CGFloat] = [6, 12, 8, 14]
+        var waveBars: [UIView] = []
 
         for i in 0..<4 {
             let bar = UIView()
-            bar.backgroundColor = UIColor.white.withAlphaComponent(0.8)
+            bar.backgroundColor = brandColor.withAlphaComponent(0.6)
             bar.layer.cornerRadius = 1.5
             bar.translatesAutoresizingMaskIntoConstraints = false
             waveStack.addArrangedSubview(bar)
+            waveBars.append(bar)
 
-            let hc = bar.heightAnchor.constraint(equalToConstant: maxHeights[i])
             NSLayoutConstraint.activate([
                 bar.widthAnchor.constraint(equalToConstant: 3),
-                hc,
+                bar.heightAnchor.constraint(equalToConstant: barHeights[i]),
             ])
-            heightConstraints.append(hc)
         }
 
-        // Animate height constraints with staggered timing
-        func animateWaveBars() {
-            for (i, hc) in heightConstraints.enumerated() {
-                let delay = Double(i) * 0.12
-                UIView.animate(withDuration: 0.35, delay: delay, options: [.curveEaseInOut], animations: {
-                    hc.constant = minHeights[i]
-                    waveStack.layoutIfNeeded()
-                }) { _ in
-                    UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseInOut], animations: {
-                        hc.constant = maxHeights[i]
-                        waveStack.layoutIfNeeded()
-                    })
-                }
-            }
-        }
-
-        // Start animation loop
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak waveStack, weak self] timer in
-            guard waveStack?.window != nil, self?.overlayView != nil else { timer.invalidate(); return }
-            animateWaveBars()
-        }
-        // Initial kick
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { animateWaveBars() }
         statusRow.addArrangedSubview(waveStack)
 
         let statusLabel = UILabel()
         statusLabel.text = isTestMode ? "Setting up your session" : "Connecting to \(coachName)"
         statusLabel.font = UIFont.systemFont(ofSize: 15, weight: .medium)
-        statusLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+        statusLabel.textColor = textColor.withAlphaComponent(0.55)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusRow.addArrangedSubview(statusLabel)
 
         contentStack.addArrangedSubview(statusRow)
         contentStack.setCustomSpacing(24, after: statusRow)
 
-        // Subtle tips that cycle
+        // Cycling tips
         let tipLabel = UILabel()
         tipLabel.textAlignment = .center
         tipLabel.font = UIFont.systemFont(ofSize: 13, weight: .regular)
-        tipLabel.textColor = UIColor.white.withAlphaComponent(0.35)
+        tipLabel.textColor = textColor.withAlphaComponent(0.35)
         tipLabel.numberOfLines = 2
         tipLabel.translatesAutoresizingMaskIntoConstraints = false
         contentStack.addArrangedSubview(tipLabel)
@@ -567,18 +515,65 @@ class DailyCallViewController: UIViewController {
             overlay.addGestureRecognizer(tapGesture)
         }
 
-        // Entrance animation
+        // Entrance animation — add CA animations in completion so they aren't
+        // stripped while contentStack.alpha == 0
         contentStack.alpha = 0
         contentStack.transform = CGAffineTransform(translationX: 0, y: 40)
-        UIView.animate(withDuration: 0.7, delay: 0.2, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.3) {
+        UIView.animate(withDuration: 0.7, delay: 0.2, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.3, animations: {
             contentStack.alpha = 1
             contentStack.transform = .identity
+        }) { _ in
+            // Ring pulse animations
+            for (i, ring) in ringViews.enumerated() {
+                let pulse = CABasicAnimation(keyPath: "transform.scale")
+                pulse.fromValue = 0.95
+                pulse.toValue = 1.08
+                pulse.duration = 2.0 + Double(i) * 0.4
+                pulse.autoreverses = true
+                pulse.repeatCount = .infinity
+                pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ring.layer.add(pulse, forKey: "ring_pulse")
+            }
+
+            // Avatar breathing animation
+            let breathe = CABasicAnimation(keyPath: "transform.scale")
+            breathe.fromValue = 1.0
+            breathe.toValue = 1.06
+            breathe.duration = 2.5
+            breathe.autoreverses = true
+            breathe.repeatCount = .infinity
+            breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            avatar.layer.add(breathe, forKey: "breathe")
+
+            // Waveform bar animations using CAKeyframeAnimation
+            let barScales: [(min: CGFloat, max: CGFloat)] = [
+                (0.33, 1.0), (0.33, 1.0), (0.375, 1.0), (0.36, 1.0)
+            ]
+            for (i, bar) in waveBars.enumerated() {
+                let anim = CAKeyframeAnimation(keyPath: "transform.scale.y")
+                anim.values = [barScales[i].max, barScales[i].min, barScales[i].max]
+                anim.keyTimes = [0, 0.5, 1.0]
+                anim.duration = 0.7
+                anim.repeatCount = .infinity
+                anim.beginTime = CACurrentMediaTime() + Double(i) * 0.15
+                anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                bar.layer.add(anim, forKey: "wave_\(i)")
+            }
         }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         overlayGradientLayer?.frame = view.bounds
+
+        // Keep avatar images circular after Auto Layout resizes them (tag 9001)
+        if isAudioModeOnly {
+            for avatarView in [localAvatarView, remoteAvatarView] {
+                if let imageView = avatarView.viewWithTag(9001) {
+                    imageView.layer.cornerRadius = imageView.bounds.height / 2
+                }
+            }
+        }
     }
 
     func removeOverlayView() {
@@ -646,17 +641,64 @@ class DailyCallViewController: UIViewController {
         }
     }
 
+    var previousCallState: CallState = .initialized
+
     func handleCallStateChange(_ state: CallState) {
+        print("[NetworkDebug] handleCallStateChange — state: \(state), previous: \(previousCallState)")
         onCallStateChange?(state)
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let prev = self.previousCallState
+            self.previousCallState = state
+
+            // Show toast when connection is lost
+            if prev == .joined && state != .joined {
+                self.showNetworkToast(
+                    icon: "wifi.exclamationmark",
+                    title: "Connection Lost",
+                    message: "Your network connection has been interrupted.",
+                    color: UIColor.systemRed,
+                    persistent: true
+                )
+                self.lastNetworkQuality = "very-low"
+                self.settingsVC?.updateNetworkQuality("very-low")
+            }
+
+            // Show toast when connection is restored
+            if prev != .joined && state == .joined {
+                self.dismissNetworkToast(animated: true)
+                self.showNetworkToast(
+                    icon: "wifi",
+                    title: "Connection Restored",
+                    message: "Your network connection has been restored.",
+                    color: UIColor.systemGreen,
+                    persistent: false
+                )
+                self.lastNetworkQuality = "good"
+                self.settingsVC?.updateNetworkQuality("good")
+            }
+        }
     }
 
     func handleNetworkQualityChange(_ quality: String) {
+        print("[NetworkDebug] handleNetworkQualityChange — quality: '\(quality)', prev: '\(lastNetworkQuality)'")
         onNetworkQualityChange?(quality)
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             let prev = self.lastNetworkQuality
             self.lastNetworkQuality = quality
+
+            // Update settings modal
+            self.settingsVC?.updateNetworkQuality(quality)
+
+            // Show toast on state transitions
+            guard quality != prev else {
+                print("[NetworkDebug]   same as prev, skipping toast")
+                return
+            }
+            print("[NetworkDebug]   state transition: '\(prev)' → '\(quality)', showing toast")
 
             switch quality {
             case "very-low":
@@ -676,9 +718,64 @@ class DailyCallViewController: UIViewController {
                     persistent: false
                 )
             default:
-                // Quality recovered — dismiss any existing toast
                 if prev == "low" || prev == "very-low" {
                     self.showNetworkToast(
+                        icon: "wifi",
+                        title: "Connection Restored",
+                        message: "Your network has improved.",
+                        color: UIColor.systemGreen,
+                        persistent: false
+                    )
+                }
+            }
+        }
+    }
+
+    /// Called when Daily SDK fires networkStatsUpdated — uses quality integer (0-100)
+    /// since the SDK's Threshold enum stays at .good even when quality drops to 37/100
+    func handleNetworkStatsUpdate(_ stats: NetworkStats) {
+        settingsVC?.updateNetworkStats(stats)
+
+        let qualityScore = stats.quality // 0-100 integer
+
+        // Determine state from quality score (SDK threshold is unreliable)
+        let quality: String
+        if qualityScore >= 70 {
+            quality = "good"
+        } else if qualityScore >= 50 {
+            quality = "low"
+        } else {
+            quality = "very-low"
+        }
+
+        print("[NetworkDebug] handleNetworkStatsUpdate — qualityScore: \(qualityScore), mapped: '\(quality)', lastNetworkQuality: '\(lastNetworkQuality)'")
+
+        // Only act on state transitions
+        if quality != lastNetworkQuality {
+            let prev = lastNetworkQuality
+            lastNetworkQuality = quality
+            print("[NetworkDebug]   state transition: '\(prev)' → '\(quality)'")
+
+            switch quality {
+            case "very-low":
+                showNetworkToast(
+                    icon: "wifi.exclamationmark",
+                    title: "Very Poor Connection",
+                    message: "Your network is unstable. Audio may be affected.",
+                    color: UIColor.systemRed,
+                    persistent: true
+                )
+            case "low":
+                showNetworkToast(
+                    icon: "wifi.slash",
+                    title: "Poor Connection",
+                    message: "Network quality is low. You may experience delays.",
+                    color: UIColor.systemOrange,
+                    persistent: false
+                )
+            default:
+                if prev == "low" || prev == "very-low" {
+                    showNetworkToast(
                         icon: "wifi",
                         title: "Connection Restored",
                         message: "Your network has improved.",
@@ -894,6 +991,20 @@ class DailyCallViewController: UIViewController {
                 }
             }
         }
+    }
+
+    // MARK: - Settings
+
+    var settingsVC: CallSettingsViewController?
+
+    @objc func settingsTapped() {
+        let vc = CallSettingsViewController(
+            callClient: callClient,
+            networkQuality: lastNetworkQuality,
+            isAudioModeOnly: isAudioModeOnly
+        )
+        settingsVC = vc
+        present(vc, animated: true)
     }
 
     // MARK: - End Role Play

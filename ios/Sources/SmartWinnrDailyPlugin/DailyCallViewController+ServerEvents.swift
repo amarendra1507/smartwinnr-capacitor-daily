@@ -14,8 +14,12 @@ import Daily
 extension DailyCallViewController {
 
     func processServerEventFromJSON(_ jsonString: String) {
+        print("[AudioDebug] processServerEventFromJSON received: \(jsonString.prefix(200))")
         eventQueue.async { [weak self] in
-            guard let self = self, self.isEventHandlingActive else { return }
+            guard let self = self, self.isEventHandlingActive else {
+                print("[AudioDebug]   ⚠️ Event handling NOT active or self is nil")
+                return
+            }
 
             do {
                 let jsonData = Data(jsonString.utf8)
@@ -41,14 +45,16 @@ extension DailyCallViewController {
     }
 
     func handleSpecificMessageType(_ messageType: String, payload: [String: Any]?) {
+        print("[AudioDebug] handleSpecificMessageType: \(messageType), isAudioModeOnly: \(isAudioModeOnly)")
         switch messageType {
-        case "USER_STARTED_SPEAKING":
+        // Support both UPPER_SNAKE_CASE (legacy) and lower-kebab-case (current server format)
+        case "USER_STARTED_SPEAKING", "user-started-speaking":
             handleUserStartedSpeakingMessage()
-        case "USER_STOPPED_SPEAKING":
+        case "USER_STOPPED_SPEAKING", "user-stopped-speaking":
             handleUserStoppedSpeakingMessage()
-        case "BOT_STARTED_SPEAKING":
+        case "BOT_STARTED_SPEAKING", "bot-started-speaking":
             handleBotStartedSpeakingMessage()
-        case "BOT_STOPPED_SPEAKING":
+        case "BOT_STOPPED_SPEAKING", "bot-stopped-speaking":
             handleBotStoppedSpeakingMessage()
         default:
             break
@@ -80,13 +86,22 @@ extension DailyCallViewController {
     }
 
     func handleBotStartedSpeakingMessage() {
+        print("[AudioDebug] handleBotStartedSpeakingMessage - participantStates count: \(participantStates.count)")
         setAiThinkingState(isThinking: false)
 
+        var foundAi = false
         for (participantId, participant) in participantStates {
-            if !participant.id.contains("local") && participantId != callClient.participants.local.id {
+            let isLocal = participantId == callClient.participants.local.id
+            print("[AudioDebug]   participant '\(participant.id)' isLocal: \(isLocal), id.contains('local'): \(participant.id.contains("local"))")
+            if !participant.id.contains("local") && !isLocal {
+                print("[AudioDebug]   → Found AI participant, setting speaking=true")
                 updateParticipantSpeakingState(participantId: participantId, isSpeaking: true, isLocal: false)
+                foundAi = true
                 break
             }
+        }
+        if !foundAi {
+            print("[AudioDebug]   ⚠️ No AI participant found in participantStates!")
         }
 
         if isUserTurn {
@@ -95,6 +110,7 @@ extension DailyCallViewController {
     }
 
     func handleBotStoppedSpeakingMessage() {
+        print("[AudioDebug] handleBotStoppedSpeakingMessage")
         for (participantId, participant) in participantStates {
             if !participant.id.contains("local") && participantId != callClient.participants.local.id {
                 updateParticipantSpeakingState(participantId: participantId, isSpeaking: false, isLocal: false)

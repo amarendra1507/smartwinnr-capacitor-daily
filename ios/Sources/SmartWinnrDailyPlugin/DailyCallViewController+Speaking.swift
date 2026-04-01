@@ -44,6 +44,16 @@ struct TurnRecord {
 extension DailyCallViewController {
 
     func updateParticipantSpeakingState(participantId: ParticipantID, isSpeaking: Bool, isLocal: Bool) {
+        print("[AudioDebug] updateParticipantSpeakingState called - participantId: \(participantId), isSpeaking: \(isSpeaking), isLocal: \(isLocal), isAudioModeOnly: \(isAudioModeOnly)")
+        print("[AudioDebug]   participantStates keys: \(participantStates.keys.map { $0.description })")
+
+        // If participant not yet registered, create one so animation can proceed
+        if participantStates[participantId] == nil {
+            let name = isLocal ? userName : coachName
+            print("[AudioDebug]   participant NOT found in states, auto-registering as '\(name)'")
+            participantStates[participantId] = DailyParticipant(id: participantId.description, name: name)
+        }
+
         guard var participant = participantStates[participantId] else { return }
 
         let wasSpeaking = participant.isSpeaking
@@ -57,6 +67,7 @@ extension DailyCallViewController {
             stopThinkingAnimation(for: participantId)
         }
 
+        print("[AudioDebug]   wasSpeaking: \(wasSpeaking), now isSpeaking: \(isSpeaking), calling updateSpeakingIndicator")
         updateSpeakingIndicator(for: participantId, isSpeaking: isSpeaking)
 
         if isSpeaking && !wasSpeaking {
@@ -82,7 +93,11 @@ extension DailyCallViewController {
     }
 
     func setAiThinkingState(isThinking: Bool) {
+        print("[AudioDebug] setAiThinkingState called - isThinking: \(isThinking), isAudioModeOnly: \(isAudioModeOnly)")
+        print("[AudioDebug]   isAnyUserSpeaking: \(isAnyUserSpeaking()), isAnyAiSpeaking: \(isAnyAiSpeaking())")
+
         if isThinking && (isAnyUserSpeaking() || isAnyAiSpeaking()) {
+            print("[AudioDebug]   ⏭ Skipping thinking — someone is speaking")
             return
         }
 
@@ -90,16 +105,22 @@ extension DailyCallViewController {
             let isLocalParticipant = participantId == callClient.participants.local.id
             let isAiParticipant = !participant.id.contains("local") && !isLocalParticipant
 
+            print("[AudioDebug]   checking participant '\(participant.id)' isLocal: \(isLocalParticipant), isAi: \(isAiParticipant), isSpeaking: \(participant.isSpeaking)")
+
             if isAiParticipant {
                 if !participant.isSpeaking {
                     participant.isThinking = isThinking
                     participantStates[participantId] = participant
 
                     if isThinking {
+                        print("[AudioDebug]   ▶ Starting thinking animation for \(participantId)")
                         startThinkingAnimation(for: participantId)
                     } else {
+                        print("[AudioDebug]   ⏹ Stopping thinking animation for \(participantId)")
                         stopThinkingAnimation(for: participantId)
                     }
+                } else {
+                    print("[AudioDebug]   ⏭ AI participant is speaking, skip thinking change")
                 }
             }
         }
@@ -143,14 +164,25 @@ extension DailyCallViewController {
         // In video mode, animate on the video container itself
         let targetView: UIView
         if isAudioModeOnly {
-            let avatar = isLocalParticipant ? localAvatarView : remoteAvatarView
-            avatar.layer.masksToBounds = false // allow shadow to render outside bounds
-            targetView = avatar
+            targetView = isLocalParticipant ? localAvatarView : remoteAvatarView
         } else {
             targetView = videoContainer
         }
 
+        print("[AudioDebug] updateSpeakingIndicator - isLocal: \(isLocalParticipant), isSpeaking: \(isSpeaking), isAudioMode: \(isAudioModeOnly)")
+        print("[AudioDebug]   targetView: \(targetView), frame: \(targetView.frame), window: \(String(describing: targetView.window))")
+        print("[AudioDebug]   targetView.isHidden: \(targetView.isHidden), alpha: \(targetView.alpha)")
+        print("[AudioDebug]   targetView.layer.masksToBounds: \(targetView.layer.masksToBounds), clipsToBounds: \(targetView.clipsToBounds)")
+        print("[AudioDebug]   targetView.superview: \(String(describing: targetView.superview)), superview.isHidden: \(targetView.superview?.isHidden ?? true)")
+        print("[AudioDebug]   newContentContainerView.alpha: \(newContentContainerView.alpha), isHidden: \(newContentContainerView.isHidden)")
+
         if isSpeaking {
+            // Ensure the target is visible and not clipping border/shadow
+            if isAudioModeOnly {
+                targetView.clipsToBounds = false
+                targetView.layer.masksToBounds = false
+            }
+
             targetView.layer.borderColor = UIColor.systemBlue.cgColor
             targetView.layer.borderWidth = 3.0
             targetView.layer.shadowColor = UIColor.systemBlue.cgColor
@@ -158,33 +190,55 @@ extension DailyCallViewController {
             targetView.layer.shadowOpacity = 0.6
             targetView.layer.shadowOffset = CGSize.zero
 
-            let pulseAnimation = CABasicAnimation(keyPath: "shadowOpacity")
-            pulseAnimation.duration = 2.0
-            pulseAnimation.fromValue = 0.6
-            pulseAnimation.toValue = 0.8
-            pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            pulseAnimation.autoreverses = true
-            pulseAnimation.repeatCount = .infinity
-            targetView.layer.add(pulseAnimation, forKey: "speaking_pulse")
+            // Also set shadowPath for better rendering performance
+            targetView.layer.shadowPath = UIBezierPath(roundedRect: targetView.bounds, cornerRadius: targetView.layer.cornerRadius).cgPath
+
+            // Animate both shadow and border for a visible pulse effect
+            let shadowPulse = CABasicAnimation(keyPath: "shadowOpacity")
+            shadowPulse.fromValue = 0.4
+            shadowPulse.toValue = 0.9
+
+            let shadowRadiusPulse = CABasicAnimation(keyPath: "shadowRadius")
+            shadowRadiusPulse.fromValue = 8.0
+            shadowRadiusPulse.toValue = 20.0
+
+            let borderColorPulse = CABasicAnimation(keyPath: "borderColor")
+            borderColorPulse.fromValue = UIColor.systemBlue.withAlphaComponent(0.6).cgColor
+            borderColorPulse.toValue = UIColor.systemBlue.cgColor
+
+            let borderWidthPulse = CABasicAnimation(keyPath: "borderWidth")
+            borderWidthPulse.fromValue = 2.0
+            borderWidthPulse.toValue = 4.0
+
+            let pulseGroup = CAAnimationGroup()
+            pulseGroup.animations = [shadowPulse, shadowRadiusPulse, borderColorPulse, borderWidthPulse]
+            pulseGroup.duration = 1.0
+            pulseGroup.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulseGroup.autoreverses = true
+            pulseGroup.repeatCount = .infinity
+            targetView.layer.add(pulseGroup, forKey: "speaking_pulse")
+
+            print("[AudioDebug]   ✅ Applied speaking border + pulse animation on targetView")
+            print("[AudioDebug]   borderWidth: \(targetView.layer.borderWidth), shadowOpacity: \(targetView.layer.shadowOpacity)")
 
             addSpeakingPill(to: indicatorRow, participantId: participantId)
         } else {
             if isAudioModeOnly {
-                // Restore avatar default — no border, clip content
+                // Restore avatar default — no border, no shadow
+                // Don't set masksToBounds — avatar view needs it off for future animations
                 targetView.layer.borderColor = UIColor.clear.cgColor
                 targetView.layer.borderWidth = 0
                 targetView.layer.shadowOpacity = 0
-                targetView.layer.masksToBounds = true
+                targetView.layer.shadowPath = nil
             } else {
-                // Restore video container default card style
-                targetView.layer.borderColor = UIColor.systemGray4.cgColor
-                targetView.layer.borderWidth = 1
-                targetView.layer.shadowColor = UIColor.black.cgColor
-                targetView.layer.shadowRadius = 8
-                targetView.layer.shadowOpacity = 0.12
-                targetView.layer.shadowOffset = CGSize(width: 0, height: 2)
+                // Restore video container default — no border/shadow (card wrapper provides that)
+                targetView.layer.borderColor = UIColor.clear.cgColor
+                targetView.layer.borderWidth = 0
+                targetView.layer.shadowOpacity = 0
             }
             targetView.layer.removeAnimation(forKey: "speaking_pulse")
+
+            print("[AudioDebug]   ❌ Removed speaking animation from targetView")
 
             removeSpeakingPill(from: indicatorRow, participantId: participantId)
         }
@@ -315,11 +369,19 @@ extension DailyCallViewController {
 
     func startThinkingAnimation(for participantId: ParticipantID) {
         let isLocal = participantId == callClient.participants.local.id
-        if isLocal { return }
+        print("[AudioDebug] startThinkingAnimation - participantId: \(participantId), isLocal: \(isLocal), isAudioModeOnly: \(isAudioModeOnly)")
+        if isLocal {
+            print("[AudioDebug]   ⏭ Skipping — local participant")
+            return
+        }
 
         let tag = "thinking_\(participantId)"
         // Don't add duplicate
-        if remoteIndicatorRow.subviews.contains(where: { $0.accessibilityIdentifier == tag }) { return }
+        if remoteIndicatorRow.subviews.contains(where: { $0.accessibilityIdentifier == tag }) {
+            print("[AudioDebug]   ⏭ Skipping — thinking pill already exists")
+            return
+        }
+        print("[AudioDebug]   remoteIndicatorRow frame: \(remoteIndicatorRow.frame), isHidden: \(remoteIndicatorRow.isHidden), window: \(String(describing: remoteIndicatorRow.window))")
 
         // Match web: .thinking-indicator pill with purple orb dots
         let pill = UIView()
@@ -519,8 +581,28 @@ extension DailyCallViewController {
         return participantStates.keys.first { !$0.description.contains("local") }
     }
 
+    /// Returns the correct view to animate for a participant.
+    /// In audio-only mode, returns the avatar view; in video mode, returns the video view.
+    private func animationTargetView(for participantId: ParticipantID) -> UIView? {
+        let isLocal = participantId == callClient.participants.local.id
+        if isAudioModeOnly {
+            return isLocal ? localAvatarView : remoteAvatarView
+        }
+        return getVideoViewForParticipant(participantId)
+    }
+
+    /// Returns the correct container view to animate for a participant.
+    /// In audio-only mode, returns the avatar view; in video mode, returns the video container.
+    private func animationContainerView(for participantId: ParticipantID) -> UIView {
+        let isLocal = participantId == callClient.participants.local.id
+        if isAudioModeOnly {
+            return isLocal ? localAvatarView : remoteAvatarView
+        }
+        return isLocal ? newLocalVideoContainer : newRemoteVideoContainer
+    }
+
     func triggerPulseAnimation(for participantId: ParticipantID, duration: TimeInterval, intensity: Float) {
-        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        guard let targetView = animationTargetView(for: participantId) else { return }
 
         let pulseAnimation = CABasicAnimation(keyPath: "transform.scale")
         pulseAnimation.duration = duration
@@ -530,26 +612,26 @@ extension DailyCallViewController {
         pulseAnimation.autoreverses = true
         pulseAnimation.repeatCount = 1
 
-        videoView.layer.add(pulseAnimation, forKey: "server_pulse_animation")
+        targetView.layer.add(pulseAnimation, forKey: "server_pulse_animation")
     }
 
     func triggerHighlightAnimation(for participantId: ParticipantID, duration: TimeInterval) {
-        let videoContainer = participantId == callClient.participants.local.id ? newLocalVideoContainer : newRemoteVideoContainer
+        let targetView = animationContainerView(for: participantId)
 
-        let originalBorderColor = videoContainer.layer.borderColor
-        let originalBorderWidth = videoContainer.layer.borderWidth
+        let originalBorderColor = targetView.layer.borderColor
+        let originalBorderWidth = targetView.layer.borderWidth
 
-        videoContainer.layer.borderColor = UIColor.systemYellow.cgColor
-        videoContainer.layer.borderWidth = 6.0
+        targetView.layer.borderColor = UIColor.systemYellow.cgColor
+        targetView.layer.borderWidth = 6.0
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            videoContainer.layer.borderColor = originalBorderColor
-            videoContainer.layer.borderWidth = originalBorderWidth
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak targetView] in
+            targetView?.layer.borderColor = originalBorderColor
+            targetView?.layer.borderWidth = originalBorderWidth
         }
     }
 
     func triggerFadeAnimation(for participantId: ParticipantID, fadeIn: Bool, duration: TimeInterval) {
-        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        guard let targetView = animationTargetView(for: participantId) else { return }
 
         let fadeAnimation = CABasicAnimation(keyPath: "opacity")
         fadeAnimation.duration = duration
@@ -557,7 +639,7 @@ extension DailyCallViewController {
         fadeAnimation.toValue = fadeIn ? 1.0 : 0.3
         fadeAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
-        videoView.layer.add(fadeAnimation, forKey: "server_fade_animation")
+        targetView.layer.add(fadeAnimation, forKey: "server_fade_animation")
     }
 
     func handleCustomAnimation(for participantId: ParticipantID, metadata: [String: String]?) {
@@ -578,7 +660,7 @@ extension DailyCallViewController {
     }
 
     func triggerBounceAnimation(for participantId: ParticipantID) {
-        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        guard let targetView = animationTargetView(for: participantId) else { return }
 
         let bounceAnimation = CAKeyframeAnimation(keyPath: "transform.scale")
         bounceAnimation.values = [1.0, 1.2, 0.9, 1.1, 1.0]
@@ -586,11 +668,11 @@ extension DailyCallViewController {
         bounceAnimation.duration = 0.8
         bounceAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
-        videoView.layer.add(bounceAnimation, forKey: "bounce_animation")
+        targetView.layer.add(bounceAnimation, forKey: "bounce_animation")
     }
 
     func triggerShakeAnimation(for participantId: ParticipantID) {
-        guard let videoView = getVideoViewForParticipant(participantId) else { return }
+        guard let targetView = animationTargetView(for: participantId) else { return }
 
         let shakeAnimation = CAKeyframeAnimation(keyPath: "transform.translation.x")
         shakeAnimation.values = [0, -10, 10, -5, 5, 0]
@@ -598,11 +680,11 @@ extension DailyCallViewController {
         shakeAnimation.duration = 0.5
         shakeAnimation.timingFunction = CAMediaTimingFunction(name: .linear)
 
-        videoView.layer.add(shakeAnimation, forKey: "shake_animation")
+        targetView.layer.add(shakeAnimation, forKey: "shake_animation")
     }
 
     func triggerGlowAnimation(for participantId: ParticipantID) {
-        let videoContainer = participantId == callClient.participants.local.id ? newLocalVideoContainer : newRemoteVideoContainer
+        let targetView = animationContainerView(for: participantId)
 
         let glowAnimation = CABasicAnimation(keyPath: "shadowOpacity")
         glowAnimation.duration = 1.0
@@ -612,9 +694,9 @@ extension DailyCallViewController {
         glowAnimation.autoreverses = true
         glowAnimation.repeatCount = 2
 
-        videoContainer.layer.shadowColor = UIColor.cyan.cgColor
-        videoContainer.layer.shadowRadius = 20
-        videoContainer.layer.add(glowAnimation, forKey: "glow_animation")
+        targetView.layer.shadowColor = UIColor.cyan.cgColor
+        targetView.layer.shadowRadius = 20
+        targetView.layer.add(glowAnimation, forKey: "glow_animation")
     }
 
     // MARK: - Public Test Methods

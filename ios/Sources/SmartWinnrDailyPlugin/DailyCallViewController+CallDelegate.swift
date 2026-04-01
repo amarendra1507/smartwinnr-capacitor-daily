@@ -163,10 +163,14 @@ extension DailyCallViewController: CallClientDelegate {
                 self.attachVideoTrack(track, for: participant.id, isLocal: true)
             }
 
-            self.participantStates[participant.id] = DailyParticipant(
-                id: participant.id.description,
-                name: self.userName
-            )
+            // Preserve existing speaking/thinking state — only create if not already tracked
+            if self.participantStates[participant.id] == nil {
+                self.participantStates[participant.id] = DailyParticipant(
+                    id: participant.id.description,
+                    name: self.userName
+                )
+                print("[AudioDebug] participantUpdated: registered LOCAL participant \(participant.id)")
+            }
 
             if self.isTestMode {
                 DispatchQueue.main.async { [weak self] in
@@ -191,10 +195,14 @@ extension DailyCallViewController: CallClientDelegate {
                 }
             }
 
-            self.participantStates[participant.id] = DailyParticipant(
-                id: participant.id.description,
-                name: participant.info.username ?? "Remote User"
-            )
+            // Preserve existing speaking/thinking state — only create if not already tracked
+            if self.participantStates[participant.id] == nil {
+                self.participantStates[participant.id] = DailyParticipant(
+                    id: participant.id.description,
+                    name: participant.info.username ?? "Remote User"
+                )
+                print("[AudioDebug] participantUpdated: registered REMOTE participant \(participant.id)")
+            }
 
             if let alert = self.disconnectionAlert {
                 alert.dismiss(animated: true)
@@ -214,7 +222,19 @@ extension DailyCallViewController: CallClientDelegate {
     }
 
     func callClient(_ callClient: CallClient, networkQualityChanged quality: String) {
+        print("[NetworkDebug] networkQualityChanged delegate fired — quality: '\(quality)'")
         handleNetworkQualityChange(quality)
+    }
+
+    func callClient(_ callClient: CallClient, networkStatsUpdated stats: NetworkStats) {
+        print("[NetworkDebug] networkStatsUpdated delegate fired — threshold: \(stats.threshold), quality: \(stats.quality), previousThreshold: \(String(describing: stats.previousThreshold))")
+        let latest = stats.stats.latest
+        print("[NetworkDebug]   latest stats — sendBps: \(latest.sendBitsPerSecond ?? -1), recvBps: \(latest.receiveBitsPerSecond ?? -1), totalSendLoss: \(latest.totalSendPacketLoss ?? -1), totalRecvLoss: \(latest.totalRecvPacketLoss ?? -1)")
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.settingsVC?.updateNetworkStats(stats)
+            self.handleNetworkStatsUpdate(stats)
+        }
     }
 
     func callClient(_ callClient: CallClient, activeSpeakerChanged activeSpeaker: Participant?) {
