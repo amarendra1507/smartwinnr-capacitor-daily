@@ -70,6 +70,11 @@ extension DailyCallViewController {
         print("[AudioDebug]   wasSpeaking: \(wasSpeaking), now isSpeaking: \(isSpeaking), calling updateSpeakingIndicator")
         updateSpeakingIndicator(for: participantId, isSpeaking: isSpeaking)
 
+        // Mirror the state into the PiP window so the viewer sees live
+        // thinking / listening / speaking labels there too.
+        refreshPipAiStateFromParticipants()
+        refreshPipUserSpeakingFromParticipants()
+
         if isSpeaking && !wasSpeaking {
             if isLocal {
                 if isAnyAiSpeaking() {
@@ -119,6 +124,7 @@ extension DailyCallViewController {
                         print("[AudioDebug]   ⏹ Stopping thinking animation for \(participantId)")
                         stopThinkingAnimation(for: participantId)
                     }
+                    refreshPipAiStateFromParticipants()
                 } else {
                     print("[AudioDebug]   ⏭ AI participant is speaking, skip thinking change")
                 }

@@ -74,6 +74,27 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         let audioModeOnly = call.getBool("audio_mode_only") ?? false
         let userProfileImageURL = call.getString("userProfileImageURL")
         let coachProfileImageURL = call.getString("coachProfileImageURL")
+        // Caller-provided shape:
+        //   is_sharable_resources_available: Bool
+        //   sharable_resources: [{ id, url, display_name? }]
+        // We activate document-share mode when the flag is true AND the first
+        // sharable resource has a usable URL. The first resource drives the
+        // initial PDF viewer; a selector lets the user switch if count > 1.
+        let isSharableResourcesAvailable = call.getBool("is_sharable_resources_available") ?? false
+        let sharableResourcesRaw = call.getArray("sharable_resources", JSObject.self) ?? []
+        let sharableItems: [DailyCallViewController.SharableResourceItem] = sharableResourcesRaw.compactMap { entry in
+            guard let url = entry["url"] as? String, !url.isEmpty else { return nil }
+            let id = (entry["id"] as? String) ?? url
+            return DailyCallViewController.SharableResourceItem(
+                id: id,
+                url: url,
+                displayName: entry["display_name"] as? String
+            )
+        }
+        let firstResource = sharableItems.first
+        let documentUrl = firstResource?.url
+        let documentTitle = firstResource?.displayName
+        let isDocumentShareEnabled = isSharableResourcesAvailable && firstResource != nil
 
         print("=== SmartWinnrDailyPlugin joinCall ===")
         print("  url: \(urlString)")
@@ -109,7 +130,38 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             
             // Store the reference
             self.customViewController = viewController
-            
+
+            // Configure document share (opt-in; existing setup untouched when false)
+            viewController.isDocumentShareEnabled = isDocumentShareEnabled
+            viewController.sharableResourceItems = sharableItems
+            viewController.currentResourceIndex = 0
+            viewController.documentUrlString = documentUrl
+            viewController.documentTitle = documentTitle
+
+            viewController.onPdfPageChanged = { [weak self] pageNumber, totalPages in
+                self?.notifyListeners("pdfPageChanged", data: [
+                    "pageNumber": pageNumber,
+                    "totalPages": totalPages
+                ])
+            }
+
+            viewController.onPdfTrackingUpdate = { [weak self] data in
+                self?.notifyListeners("pdfTrackingUpdate", data: data)
+            }
+
+            viewController.onPdfLoadError = { [weak self] error in
+                self?.notifyListeners("pdfLoadError", data: [
+                    "error": error,
+                    "url": documentUrl ?? ""
+                ])
+            }
+
+            viewController.onPagePresentationTracking = { [weak self] entries in
+                self?.notifyListeners("pagePresentationTracking", data: [
+                    "entries": entries
+                ])
+            }
+
             // Set up all callbacks
             viewController.onCallStateChange = { [weak self] state in
                 self?.notifyListeners("callStateChanged", data: [
