@@ -437,7 +437,10 @@ extension DailyCallViewController {
         newScreenShareButton.addTarget(self, action: #selector(screenShareTapped), for: .touchUpInside)
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchDown), for: .touchDown)
         newScreenShareButton.addTarget(self, action: #selector(buttonTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
-        newScreenShareButton.isHidden = !enableScreenShare || isAudioModeOnly
+        // Document-share mode auto-triggers the broadcast picker and manages
+        // recording on behalf of the user, so the manual screen-share toggle
+        // (including its "STOP SCREEN SHARE" state) is hidden in that flow.
+        newScreenShareButton.isHidden = !enableScreenShare || isAudioModeOnly || isDocumentShareEnabled
 
         // Settings gear button
         let gearConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
@@ -601,6 +604,7 @@ extension DailyCallViewController {
         super.viewWillTransition(to: size, with: coordinator)
         coordinator.animate(alongsideTransition: { _ in
             if self.isUIInitialized { self.updateStackViewForCurrentOrientation() }
+            if self.documentShareActivated { self.handleDocumentShareOrientationChange() }
         }, completion: nil)
     }
 
@@ -614,14 +618,17 @@ extension DailyCallViewController {
             // Still assign remote track for PiP source (even though main UI hides it)
             if !isLocal {
                 newRemoteVideoView.track = track
+                pipRemoteVideoView?.track = track
             }
             return
         }
 
         if isLocal {
             newLocalVideoView.track = track
+            pipLocalVideoView?.track = track
         } else {
             newRemoteVideoView.track = track
+            pipRemoteVideoView?.track = track
         }
     }
 

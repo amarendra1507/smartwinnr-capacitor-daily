@@ -14,6 +14,7 @@ import AVKit
 extension DailyCallViewController: CallClientDelegate {
 
     func callClientDidDetectStartOfSystemBroadcast(_ callClient: CallClient) {
+        print("[PiP] === BROADCAST STARTED === documentShareActivated=\(documentShareActivated)")
         isScreenSharingActive = true
         updateScreenShareButton()
         dismissBroadcastPicker()
@@ -45,15 +46,24 @@ extension DailyCallViewController: CallClientDelegate {
                 self.pipControllerStorage = nil
                 self.setupPictureInPicture()
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                // Kick a first attempt immediately and a safety retry after
+                // a short delay so the PiP window reliably renders as soon
+                // as the broadcast starts. `attemptPipStart` has its own
+                // retry loop for the `isPictureInPicturePossible == false`
+                // case.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     self.startPictureInPicture()
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        if let controller = self.pipControllerStorage as? AVPictureInPictureController {
-                            if !controller.isPictureInPictureActive && controller.isPictureInPicturePossible {
-                                self.attemptPipStart()
-                            }
-                        }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    guard let controller = self.pipControllerStorage as? AVPictureInPictureController else { return }
+                    if !controller.isPictureInPictureActive {
+                        self.attemptPipStart()
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                    guard let controller = self.pipControllerStorage as? AVPictureInPictureController else { return }
+                    if !controller.isPictureInPictureActive {
+                        self.attemptPipStart()
                     }
                 }
             }
@@ -141,6 +151,10 @@ extension DailyCallViewController: CallClientDelegate {
             self.allParticipantJoined = true
             self.initializeTurnSystem()
             self.setEventHandlingActive(true)
+
+            if self.isDocumentShareEnabled {
+                self.enterDocumentShareMode()
+            }
 
             if #available(iOS 15.0, *) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in

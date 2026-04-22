@@ -27,6 +27,25 @@ class DailyCallViewController: UIViewController {
     lazy var newRemoteVideoContainer = UIView()
     lazy var newLocalVideoView = VideoView()
     lazy var newRemoteVideoView = VideoView()
+
+    // Secondary VideoView instances rendered INSIDE the native
+    // AVPictureInPictureVideoCallViewController's content view when the
+    // doc-share flow is active. They share the same tracks as the primary
+    // views so the PiP window shows live AI + user video.
+    var pipRemoteVideoView: VideoView?
+    var pipLocalVideoView: VideoView?
+    // Status overlays rendered above the PiP video tiles so the viewer can
+    // see the AI's thinking/listening/speaking state + the user's speaking
+    // state + both names while in PiP.
+    var pipAiNameLabel: UILabel?
+    var pipAiStateContainer: UIView?
+    var pipAiStateIcon: UIView?
+    var pipAiStateLabel: UILabel?
+    var pipUserNameLabel: UILabel?
+    var pipUserSpeakingDot: UIView?
+
+    enum PipAiState { case listening, thinking, speaking }
+    var currentPipAiState: PipAiState = .listening
     lazy var newLocalParticipantLabel = UILabel()
     lazy var newRemoteParticipantLabel = UILabel()
     lazy var newCameraButton = UIButton()
@@ -103,6 +122,56 @@ class DailyCallViewController: UIViewController {
     var coachProfileImageURL: String?
     var coachProfileImage: UIImage?
 
+    // MARK: - Document Share (PDF) — opt-in via `isDocumentShareEnabled`
+
+    var isDocumentShareEnabled: Bool = false
+    var documentUrlString: String?
+    var documentTitle: String?
+    var documentShareActivated: Bool = false
+
+    // All sharable resources (from `sharable_resources`) and which one is
+    // currently being rendered. Index 0 is used by default.
+    struct SharableResourceItem {
+        let id: String
+        let url: String
+        let displayName: String?
+    }
+    var sharableResourceItems: [SharableResourceItem] = []
+    var currentResourceIndex: Int = 0
+
+    // Document share UI (lazily created only when the mode is activated)
+    var pdfContainerView: UIView?
+    var pdfDocumentView: DocumentSharePdfView?
+    var floatingTilesOverlayView: UIView?
+    var combinedPipContainerView: UIView?
+    var resourceSelectorButton: UIButton?
+    var thumbnailToggleButton: UIButton?
+    var thumbnailStripView: UIView?
+    var thumbnailDrawerLeadingConstraint: NSLayoutConstraint?
+    var pdfContentLeadingConstraint: NSLayoutConstraint?
+    var isThumbnailStripVisible: Bool = false
+    let thumbnailDrawerWidth: CGFloat = 130
+    var pageIndicatorLabel: UILabel?
+    var pageIndicatorHideTimer: Timer?
+
+    // Constraints that get swapped when entering document-share mode.
+    // `standardTileConstraints` are the default two-tile layout captured at
+    // build time; `documentShareTileConstraints` are the PiP-floating ones.
+    var standardTileConstraints: [NSLayoutConstraint] = []
+    var documentShareTileConstraints: [NSLayoutConstraint] = []
+
+    // Document share event callbacks (bridged to `notifyListeners` by the plugin)
+    var onPdfPageChanged: ((Int, Int) -> Void)?
+    var onPdfTrackingUpdate: (([String: Any]) -> Void)?
+    var onPdfLoadError: ((String) -> Void)?
+    var onPagePresentationTracking: (([[String: Any]]) -> Void)?
+
+    // Page-presentation tracking (documentId / pageNumber / startTime /
+    // endTime / timeSpentMs per entry). The app expects the full cumulative
+    // list on every emit.
+    var pagePresentationEntries: [[String: Any]] = []
+    var activePagePresentationEntry: [String: Any]?
+
     // MARK: - Overlay
 
     var overlayView: UIView?
@@ -147,7 +216,7 @@ class DailyCallViewController: UIViewController {
     var pipPossibleObservation: NSKeyValueObservation?
     var videoRenderingMonitorTimer: Timer?
     var pipStartRetryCount: Int = 0
-    let pipMaxRetries: Int = 5
+    let pipMaxRetries: Int = 10
 
     // MARK: - Appearance
 
@@ -1020,6 +1089,7 @@ class DailyCallViewController: UIViewController {
 
         self.newEndRolePlayButton.isEnabled = false
         self.cleanupTurnSystem()
+        self.finalizeDocumentShareTracking()
 
         self.callClient.stopRecording { [weak self] result in
             guard let self = self else { return }
