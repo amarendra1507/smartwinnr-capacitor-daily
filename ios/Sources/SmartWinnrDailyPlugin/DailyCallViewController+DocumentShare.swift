@@ -642,12 +642,32 @@ extension DailyCallViewController {
     /// existing `showBroadcastSystemPicker()` implementation.
     private func requestDeviceScreenRecording() {
         // Delay slightly so the new layout is committed and the PDF spinner
-        // is visible before Apple's system prompt pops up.
+        // is visible before we surface the explanatory prompt.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self = self, self.view.window != nil else { return }
             if self.isScreenSharingActive { return }
-            self.showBroadcastSystemPicker()
+            self.showDocumentSharePrompt()
         }
+    }
+
+    private func showDocumentSharePrompt() {
+        guard !documentSharePromptShown else { return }
+        guard presentedViewController == nil else { return }
+        documentSharePromptShown = true
+
+        let prompt = DocumentSharePromptViewController()
+        prompt.delegate = self
+        prompt.modalPresentationStyle = .pageSheet
+
+        if #available(iOS 15.0, *) {
+            if let sheet = prompt.sheetPresentationController {
+                sheet.detents = [.medium()]
+                sheet.preferredCornerRadius = 20
+                sheet.prefersGrabberVisible = false
+            }
+        }
+
+        present(prompt, animated: true)
     }
 
     // MARK: - Resource selector
@@ -836,5 +856,14 @@ extension DailyCallViewController {
         pagePresentationEntries.append(entry)
         activePagePresentationEntry = nil
         onPagePresentationTracking?(pagePresentationEntries)
+    }
+}
+
+// MARK: - DocumentSharePromptDelegate
+
+extension DailyCallViewController: DocumentSharePromptDelegate {
+    func documentSharePromptDidConfirm() {
+        guard !isScreenSharingActive else { return }
+        showBroadcastSystemPicker()
     }
 }

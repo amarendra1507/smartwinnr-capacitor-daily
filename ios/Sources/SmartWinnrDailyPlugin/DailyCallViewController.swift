@@ -128,6 +128,7 @@ class DailyCallViewController: UIViewController {
     var documentUrlString: String?
     var documentTitle: String?
     var documentShareActivated: Bool = false
+    var documentSharePromptShown: Bool = false
 
     // All sharable resources (from `sharable_resources`) and which one is
     // currently being rendered. Index 0 is used by default.
