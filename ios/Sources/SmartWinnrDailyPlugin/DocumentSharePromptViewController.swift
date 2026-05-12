@@ -19,33 +19,26 @@ final class DocumentSharePromptViewController: UIViewController {
     weak var delegate: DocumentSharePromptDelegate?
 
     private enum Copy {
-        static let title = "Ready to Share Your Screen"
-        static let intro = "This role play uses a shareable document, so we need to record your screen to capture what you present. After you tap the button below, iOS will show the broadcast prompt."
-        static let guidance = "Please tap \"SmartWinnr Screen Broadcast\" and then \"Start Broadcast\" so the avatar can follow along and your session is captured correctly."
+        static let intro = "Everything on your screen, including notifications, will be recorded. Enable Do Not Disturb to prevent unexpected notifications."
+        static let guidance = "Please tap \"ScreenBroadcast\" and then \"Start Broadcast\" so the avatar can follow along and your session is captured correctly."
         static let cta = "Share Screen to Continue"
-        static let mockExtensionName = "SmartWinnr Screen Broadcast"
+        static let sheetTitle = "Screen Broadcast"
+        static let mockExtensionName = "ScreenBroadcast"
         static let mockStartButton = "Start Broadcast"
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         isModalInPresentation = true
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.18, alpha: 1.0)
         setupUI()
     }
 
     private func setupUI() {
-        let titleLabel = UILabel()
-        titleLabel.text = Copy.title
-        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
-        titleLabel.textColor = .label
-        titleLabel.textAlignment = .center
-        titleLabel.numberOfLines = 0
-
         let introLabel = UILabel()
         introLabel.text = Copy.intro
         introLabel.font = .systemFont(ofSize: 15, weight: .regular)
-        introLabel.textColor = .secondaryLabel
+        introLabel.textColor = .white
         introLabel.textAlignment = .center
         introLabel.numberOfLines = 0
 
@@ -53,8 +46,8 @@ final class DocumentSharePromptViewController: UIViewController {
 
         let guidanceLabel = UILabel()
         guidanceLabel.text = Copy.guidance
-        guidanceLabel.font = .systemFont(ofSize: 14, weight: .regular)
-        guidanceLabel.textColor = .secondaryLabel
+        guidanceLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        guidanceLabel.textColor = UIColor.white.withAlphaComponent(0.75)
         guidanceLabel.textAlignment = .center
         guidanceLabel.numberOfLines = 0
 
@@ -68,104 +61,125 @@ final class DocumentSharePromptViewController: UIViewController {
         ctaButton.translatesAutoresizingMaskIntoConstraints = false
         ctaButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
 
-        let stack = UIStackView(arrangedSubviews: [titleLabel, introLabel, illustration, guidanceLabel, ctaButton])
+        let stack = UIStackView(arrangedSubviews: [introLabel, illustration, guidanceLabel, ctaButton])
         stack.axis = .vertical
         stack.alignment = .fill
-        stack.spacing = 14
-        stack.setCustomSpacing(18, after: introLabel)
-        stack.setCustomSpacing(18, after: illustration)
-        stack.setCustomSpacing(20, after: guidanceLabel)
+        stack.spacing = 20
+        stack.setCustomSpacing(24, after: illustration)
+        stack.setCustomSpacing(24, after: guidanceLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24)
         ])
     }
 
     /// Static mock of the iOS system broadcast picker sheet so users know
-    /// what to expect on the next screen.
+    /// what to expect on the next screen. Mirrors the native sheet layout:
+    /// record icon + "Screen Broadcast" header, the extension row with a
+    /// trailing checkmark, and a "Start Broadcast" action row.
     private func makeBroadcastIllustration() -> UIView {
         let card = UIView()
-        card.backgroundColor = UIColor.secondarySystemBackground
-        card.layer.cornerRadius = 14
-        card.layer.borderWidth = 1
-        card.layer.borderColor = UIColor.separator.cgColor
+        card.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        card.layer.cornerRadius = 18
+        card.layer.masksToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.heightAnchor.constraint(equalToConstant: 130).isActive = true
 
-        let iconBackground = UIView()
-        iconBackground.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.15)
-        iconBackground.layer.cornerRadius = 10
-        iconBackground.translatesAutoresizingMaskIntoConstraints = false
+        // Header: record icon + "Screen Broadcast" label, centered.
+        let recordIcon = UIImageView(image: UIImage(systemName: "record.circle"))
+        recordIcon.tintColor = .white
+        recordIcon.contentMode = .scaleAspectFit
+        recordIcon.translatesAutoresizingMaskIntoConstraints = false
+        recordIcon.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        recordIcon.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
-        let icon = UIImageView(image: UIImage(systemName: "record.circle"))
-        icon.tintColor = .systemRed
-        icon.contentMode = .scaleAspectFit
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        iconBackground.addSubview(icon)
+        let headerLabel = UILabel()
+        headerLabel.text = Copy.sheetTitle
+        headerLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        headerLabel.textColor = .white
+        headerLabel.textAlignment = .center
 
-        let nameLabel = UILabel()
-        nameLabel.text = Copy.mockExtensionName
-        nameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        nameLabel.textColor = .label
+        let headerStack = UIStackView(arrangedSubviews: [recordIcon, headerLabel])
+        headerStack.axis = .vertical
+        headerStack.alignment = .center
+        headerStack.spacing = 6
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let radio = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
-        radio.tintColor = .systemBlue
-        radio.translatesAutoresizingMaskIntoConstraints = false
-        radio.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        radio.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        let divider1 = makeDivider()
+        let divider2 = makeDivider()
 
-        let row = UIStackView(arrangedSubviews: [iconBackground, nameLabel, radio])
-        row.axis = .horizontal
-        row.alignment = .center
-        row.spacing = 10
-        row.translatesAutoresizingMaskIntoConstraints = false
+        // Extension row: app icon + name + trailing checkmark.
+        let appIcon = UIView()
+        appIcon.backgroundColor = UIColor(red: 0.40, green: 0.36, blue: 0.95, alpha: 1.0)
+        appIcon.layer.cornerRadius = 6
+        appIcon.translatesAutoresizingMaskIntoConstraints = false
+        appIcon.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        appIcon.heightAnchor.constraint(equalToConstant: 28).isActive = true
 
-        let startBtn = UILabel()
-        startBtn.text = Copy.mockStartButton
-        startBtn.font = .boldSystemFont(ofSize: 14)
-        startBtn.textColor = .white
-        startBtn.textAlignment = .center
-        startBtn.backgroundColor = .systemBlue
-        startBtn.layer.cornerRadius = 8
-        startBtn.layer.masksToBounds = true
-        startBtn.translatesAutoresizingMaskIntoConstraints = false
-        startBtn.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        let appLetter = UILabel()
+        appLetter.text = "S"
+        appLetter.font = .boldSystemFont(ofSize: 16)
+        appLetter.textColor = .white
+        appLetter.textAlignment = .center
+        appLetter.translatesAutoresizingMaskIntoConstraints = false
+        appIcon.addSubview(appLetter)
+        NSLayoutConstraint.activate([
+            appLetter.centerXAnchor.constraint(equalTo: appIcon.centerXAnchor),
+            appLetter.centerYAnchor.constraint(equalTo: appIcon.centerYAnchor)
+        ])
 
-        let pointer = UILabel()
-        pointer.text = "👆"
-        pointer.font = .systemFont(ofSize: 18)
-        pointer.translatesAutoresizingMaskIntoConstraints = false
+        let extensionName = UILabel()
+        extensionName.text = Copy.mockExtensionName
+        extensionName.font = .systemFont(ofSize: 15, weight: .regular)
+        extensionName.textColor = .white
 
-        card.addSubview(row)
-        card.addSubview(startBtn)
-        card.addSubview(pointer)
+        let checkmark = UIImageView(image: UIImage(systemName: "checkmark"))
+        checkmark.tintColor = .white
+        checkmark.contentMode = .scaleAspectFit
+        checkmark.translatesAutoresizingMaskIntoConstraints = false
+        checkmark.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        checkmark.heightAnchor.constraint(equalToConstant: 18).isActive = true
+
+        let extensionRow = UIStackView(arrangedSubviews: [appIcon, extensionName, UIView(), checkmark])
+        extensionRow.axis = .horizontal
+        extensionRow.alignment = .center
+        extensionRow.spacing = 10
+        extensionRow.translatesAutoresizingMaskIntoConstraints = false
+
+        // Start Broadcast row (centered text, acts like a button).
+        let startLabel = UILabel()
+        startLabel.text = Copy.mockStartButton
+        startLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        startLabel.textColor = .white
+        startLabel.textAlignment = .center
+        startLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let content = UIStackView(arrangedSubviews: [headerStack, divider1, extensionRow, divider2, startLabel])
+        content.axis = .vertical
+        content.alignment = .fill
+        content.spacing = 12
+        content.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(content)
 
         NSLayoutConstraint.activate([
-            iconBackground.widthAnchor.constraint(equalToConstant: 32),
-            iconBackground.heightAnchor.constraint(equalToConstant: 32),
-            icon.centerXAnchor.constraint(equalTo: iconBackground.centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: iconBackground.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-
-            row.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
-            row.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
-
-            startBtn.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 16),
-            startBtn.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 60),
-            startBtn.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -60),
-
-            pointer.leadingAnchor.constraint(equalTo: startBtn.trailingAnchor, constant: -10),
-            pointer.centerYAnchor.constraint(equalTo: startBtn.bottomAnchor, constant: 4)
+            content.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            content.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            content.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
         ])
 
         return card
+    }
+
+    private func makeDivider() -> UIView {
+        let divider = UIView()
+        divider.backgroundColor = UIColor.white.withAlphaComponent(0.25)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+        return divider
     }
 
     @objc private func ctaTapped() {
