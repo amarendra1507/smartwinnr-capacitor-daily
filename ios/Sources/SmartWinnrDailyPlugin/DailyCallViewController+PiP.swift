@@ -587,6 +587,14 @@ extension DailyCallViewController {
             print("[PiP] AudioSession ERROR: \(error.localizedDescription)")
         }
 
+        // We just reconfigured + reactivated the shared AVAudioSession for PiP.
+        // Re-assert the audio route so the Daily SDK re-syncs its mic capture to
+        // the session we just changed — otherwise the mic input can silently
+        // detach. Runs slightly later so it lands after the session settles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.applyPreferredAudioRoute(reason: "pip-setup")
+        }
+
         ensureRemoteVideoVisible()
 
         let pipVC = AVPictureInPictureVideoCallViewController()
@@ -735,6 +743,12 @@ extension DailyCallViewController {
                                     options: [.allowBluetooth, .defaultToSpeaker, .mixWithOthers])
             try session.setActive(true)
         } catch {}
+
+        // Re-assert the audio route after reactivating the session (see the note
+        // in setupPictureInPicture) so the SDK keeps the mic capture attached.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.applyPreferredAudioRoute(reason: "rendering-monitor")
+        }
 
         videoRenderingMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }

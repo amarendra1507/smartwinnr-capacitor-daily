@@ -184,6 +184,28 @@ class DailyCallViewController: UIViewController {
     var networkToastDismissTimer: Timer?
     var lastNetworkQuality: String = "good"
 
+    // MARK: - Audio / Video Device Selection
+
+    // Audio route chosen on the pre-call screen (nil = let Daily/system pick the
+    // default). Re-applied after PiP/rendering-monitor reconfigure the shared
+    // AVAudioSession, so the SDK re-syncs its mic capture to the live session
+    // instead of silently losing the input.
+    var selectedAudioDevice: AudioDeviceType?
+    // Camera the call should publish (front by default).
+    var selectedCameraFacingMode: MediaTrackFacingMode = .user
+    // When true, show the native pre-call screen (device selection + mic check)
+    // before joining. Set by the plugin from the `show_precall` join option.
+    var showPreCall: Bool = false
+
+    // Pre-call UI references (created only when `showPreCall` is true).
+    var preCallView: PreCallView?
+    var preCallActive: Bool = false
+    // Drives the pre-call mic level meter. Daily's localAudioLevel observer only
+    // emits once the call is connected, so before join() we tap the microphone
+    // directly via AVAudioEngine. Torn down before join so the Daily SDK can
+    // cleanly take over the audio unit.
+    var preCallAudioEngine: AVAudioEngine?
+
 
     // MARK: - Callbacks
 
@@ -302,6 +324,21 @@ class DailyCallViewController: UIViewController {
         // Hide the call UI until both participants join
         newContentContainerView.alpha = 0
 
+        // When the pre-call screen is enabled, show it first (device selection +
+        // mic check). It calls `proceedToJoin()` once the user taps "Join".
+        // Otherwise join immediately (legacy behavior).
+        if showPreCall {
+            presentPreCallOverlay()
+            return
+        }
+
+        proceedToJoin()
+    }
+
+    /// Performs the actual join: schedules PiP, shows the waiting overlay, and
+    /// connects the call client. Extracted from `viewDidLoad` so the pre-call
+    /// screen can defer it until the user has picked devices and confirmed.
+    func proceedToJoin() {
         if #available(iOS 15.0, *) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                 self?.setupPictureInPicture()
@@ -336,9 +373,14 @@ class DailyCallViewController: UIViewController {
                             )
                         } else {
                             self.callClient.updateInputs(.set(
-                                camera: .set(settings: .set(facingMode: .set(.user)))
+                                camera: .set(settings: .set(facingMode: .set(self.selectedCameraFacingMode)))
                             ), completion: nil)
                         }
+
+                        // Deterministically enable the microphone input and apply
+                        // the chosen audio route. Do NOT rely on the SDK default —
+                        // this is the core fix for "mic audio not reaching Daily".
+                        self.enableMicrophoneInput(reason: "join")
 
                         if self.isTestMode {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
@@ -1029,6 +1071,42 @@ class DailyCallViewController: UIViewController {
             timer = nil
         } else {
             updateNewTimer(currentTime: currentTime, maxTime: maxTime)
+        }
+    }
+
+    // MARK: - Audio Routing
+
+    /// Enables the microphone input and applies the selected audio route.
+    /// Called once on join — this is the deterministic "publish the mic" step
+    /// that replaces relying on the Daily SDK default.
+    func enableMicrophoneInput(reason: String) {
+        callClient.setInputsEnabled([.microphone: true]) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success:
+                print("[AudioDebug] enableMicrophoneInput(\(reason)): mic input enabled = \(self.callClient.inputs.microphone.isEnabled), activeRoute = \(self.callClient.audioDevice.rawValue)")
+                self.applyPreferredAudioRoute(reason: reason)
+            case .failure(let error):
+                print("[AudioDebug] enableMicrophoneInput(\(reason)) FAILED: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Re-applies the preferred audio route so the SDK re-syncs its mic capture
+    /// to the current AVAudioSession. Safe to call repeatedly — it does NOT
+    /// change the mic mute state (so it won't unmute a user who muted), it only
+    /// (re)asserts routing. Used after PiP/rendering-monitor touch the session.
+    func applyPreferredAudioRoute(reason: String) {
+        // Prefer the user's pre-call choice; otherwise re-assert the route the
+        // SDK currently reports, which forces a re-sync after the session moved.
+        let route = selectedAudioDevice ?? callClient.audioDevice
+        callClient.set(preferredAudioDevice: route) { result in
+            switch result {
+            case .success:
+                print("[AudioDebug] applyPreferredAudioRoute(\(reason)): route -> \(route.rawValue)")
+            case .failure(let error):
+                print("[AudioDebug] applyPreferredAudioRoute(\(reason)) FAILED: \(error.localizedDescription)")
+            }
         }
     }
 

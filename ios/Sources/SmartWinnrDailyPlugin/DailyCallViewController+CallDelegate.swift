@@ -173,6 +173,13 @@ extension DailyCallViewController: CallClientDelegate {
         let videoTrack = cameraTrack ?? screenTrack
 
         if participant.info.isLocal {
+            // During the pre-call screen, route the local camera track into the
+            // preview instead of the (not-yet-built) call UI.
+            if self.preCallActive {
+                self.updatePreCallPreviewTrack()
+                return
+            }
+
             if let track = videoTrack {
                 self.attachVideoTrack(track, for: participant.id, isLocal: true)
             }
@@ -253,6 +260,24 @@ extension DailyCallViewController: CallClientDelegate {
 
     func callClient(_ callClient: CallClient, activeSpeakerChanged activeSpeaker: Participant?) {
         // Disabled: relying only on server messages for animation control
+    }
+
+    // Live audio-device list — drives the pre-call route picker and keeps it in
+    // sync when headsets are plugged/unplugged.
+    func callClient(_ callClient: CallClient, availableDevicesUpdated availableDevices: Devices) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.preCallActive else { return }
+            self.updatePreCallRoutes(from: availableDevices)
+        }
+    }
+
+    // Local mic level (0...1) — only observed during the pre-call screen so the
+    // user can confirm the microphone is actually capturing before joining.
+    func callClient(_ callClient: CallClient, localAudioLevel audioLevel: Float) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.preCallActive else { return }
+            self.preCallView?.setMicLevel(audioLevel)
+        }
     }
 
     func callClient(

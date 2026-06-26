@@ -72,6 +72,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let enableScreenShare = call.getBool("enableScreenShare") ?? false
         let audioModeOnly = call.getBool("audio_mode_only") ?? false
+        let showPreCall = call.getBool("show_precall") ?? false
         let userProfileImageURL = call.getString("userProfileImageURL")
         let coachProfileImageURL = call.getString("coachProfileImageURL")
         // Caller-provided shape:
@@ -106,6 +107,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
         print("  testMode: \(testMode)")
         print("  enableScreenShare: \(enableScreenShare)")
         print("  audio_mode_only: \(audioModeOnly)")
+        print("  show_precall: \(showPreCall)")
         print("  userProfileImageURL: \(userProfileImageURL ?? "nil")")
         print("  coachProfileImageURL: \(coachProfileImageURL ?? "nil")")
         print("======================================")
@@ -130,6 +132,9 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             
             // Store the reference
             self.customViewController = viewController
+
+            // Native pre-call screen (device selection + mic check) before join.
+            viewController.showPreCall = showPreCall
 
             // Configure document share (opt-in; existing setup untouched when false)
             viewController.isDocumentShareEnabled = isDocumentShareEnabled

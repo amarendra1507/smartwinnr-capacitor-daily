@@ -53,6 +53,15 @@ export interface SmartWinnrDailyPlugin {
     testMode?: boolean;
     enableScreenShare?: boolean;
     audio_mode_only?: boolean;
+    /**
+     * When true, a native pre-call screen is shown before joining where the
+     * user can preview their camera, pick the audio route (speaker/bluetooth/
+     * wired/earpiece), flip the camera, and confirm the microphone is
+     * capturing (live level meter) before the call connects. iOS only.
+     *
+     * @since 3.2.0
+     */
+    show_precall?: boolean;
     userProfileImageURL?: string;
     coachProfileImageURL?: string;
     /**

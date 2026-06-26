@@ -47,12 +47,12 @@ echo(options: { value: string; }) => Promise<{ value: string; }>
 ### joinCall(...)
 
 ```typescript
-joinCall(options: { url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; is_sharable_resources_available?: boolean; sharable_resources?: SharableResource[]; }) => Promise<{ isCallJoined: boolean; }>
+joinCall(options: { url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; show_precall?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; is_sharable_resources_available?: boolean; sharable_resources?: SharableResource[]; }) => Promise<{ isCallJoined: boolean; }>
 ```
 
-| Param         | Type                                                                                                                                                                                                                                                                                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`options`** | <code>{ url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; is_sharable_resources_available?: boolean; sharable_resources?: SharableResource[]; }</code> |
+| Param         | Type                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`options`** | <code>{ url: string; token: string; userName?: string; coachingTitle?: string; maximumTime?: number; coachName?: string; testMode?: boolean; enableScreenShare?: boolean; audio_mode_only?: boolean; show_precall?: boolean; userProfileImageURL?: string; coachProfileImageURL?: string; is_sharable_resources_available?: boolean; sharable_resources?: SharableResource[]; }</code> |
 
 **Returns:** <code>Promise&lt;{ isCallJoined: boolean; }&gt;</code>
 
