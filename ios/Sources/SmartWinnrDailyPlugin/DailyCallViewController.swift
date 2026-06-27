@@ -227,6 +227,15 @@ class DailyCallViewController: UIViewController {
     var recordingStarted: Bool = false
     var disconnectionAlert: UIAlertController?
 
+    /// Set once the user (or JS) has requested to end the session. Guards the
+    /// teardown so it runs exactly once and tells the PiP delegate to stop
+    /// auto-re-arming the floating window during dismissal.
+    var isEnding: Bool = false
+    /// Ensures `leave()` only performs the dismiss/`left()` side-effects once,
+    /// even though several callbacks (recording stop, call leave, watchdog) can
+    /// all reach it.
+    var hasLeft: Bool = false
+
     // MARK: - Screen Share
 
     var systemBroadcastPickerView: UIView?
@@ -723,12 +732,19 @@ class DailyCallViewController: UIViewController {
     // MARK: - Call Lifecycle
 
     func leave() {
-        guard self.view.window != nil else { return }
-
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            guard self.presentingViewController != nil else {
+            // Idempotent — several callbacks (recording stop, call leave, the
+            // end watchdog, deinit) can all reach here, but the dismiss and the
+            // `left()` notification must happen exactly once.
+            guard !self.hasLeft else { return }
+            self.hasLeft = true
+
+            // If we're not actually presented (already dismissed, or never shown
+            // in a window), there is nothing to dismiss — just notify.
+            guard self.presentingViewController != nil, self.view.window != nil else {
+                self.onDismiss?()
                 self.left()
                 return
             }
@@ -1166,51 +1182,86 @@ class DailyCallViewController: UIViewController {
             }
         }
 
-        self.newEndRolePlayButton.isEnabled = false
-        self.cleanupTurnSystem()
-        self.finalizeDocumentShareTracking()
+        self.performEndAndLeave(reason: "endRolePlayButton")
+    }
 
-        self.callClient.stopRecording { [weak self] result in
+    /// Single, idempotent teardown for ending the session. Both the End Role
+    /// Play button and the JS `endCall()` route through here.
+    ///
+    /// Order matters:
+    ///  1. Mark `isEnding` and tear down screen-share/PiP FIRST. Setting
+    ///     `isScreenSharingActive = false` and clearing the controller stops the
+    ///     PiP delegate from auto-re-arming the floating window during dismissal
+    ///     (otherwise the screen-share PiP keeps coming back).
+    ///  2. Fire `stopRecording` for its side-effects, but DO NOT gate the leave
+    ///     on its completion — a degraded network can stall that server round
+    ///     trip indefinitely, which previously left the button disabled and the
+    ///     user stuck in the call.
+    ///  3. A watchdog guarantees we leave even if no SDK callback ever arrives.
+    func performEndAndLeave(reason: String) {
+        // Re-entrancy guard — also covers double taps of the End button.
+        guard !isEnding else {
+            print("[EndCall] performEndAndLeave(\(reason)) ignored — already ending")
+            return
+        }
+        isEnding = true
+        print("[EndCall] performEndAndLeave(\(reason)) — starting teardown")
+
+        // Keep the button visibly disabled; we are committed to leaving now.
+        DispatchQueue.main.async { [weak self] in
+            self?.newEndRolePlayButton.isEnabled = false
+        }
+
+        // 1. Kill screen-share / PiP re-arm BEFORE anything else so the floating
+        //    window actually closes instead of bouncing back.
+        isScreenSharingActive = false
+        callClient.updateInputs(
+            .set(screenVideo: .set(isEnabled: .set(false))),
+            completion: nil
+        )
+        dismissBroadcastPicker()
+        if #available(iOS 15.0, *) {
+            stopPictureInPicture()
+        }
+
+        // 2. Stop the session timer and finalize tracking up front so these run
+        //    regardless of how the recording/leave callbacks resolve.
+        timer?.invalidate()
+        timer = nil
+        cleanupTurnSystem()
+        finalizeDocumentShareTracking()
+
+        let localParticipantId = callClient.participants.local.id
+        removeParticipantView(participantId: localParticipantId)
+
+        // 3. Stop recording for its side-effects only — the leave does NOT wait
+        //    on it.
+        callClient.stopRecording { [weak self] result in
             guard let self = self else { return }
-
-            DispatchQueue.main.async { [weak self] in
-                self?.newEndRolePlayButton.isEnabled = true
-            }
-
             switch result {
-            case .success(_):
+            case .success:
                 if let recordingId = self.currentRecordingId {
                     let stopTime = Date().timeIntervalSince1970
                     self.onRecordingStopped?(recordingId, stopTime)
                 }
-
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    let participants = self.callClient.participants
-                    let localParticipant = participants.local
-                    self.removeParticipantView(participantId: localParticipant.id)
-
-                    self.callClient.leave { [weak self] result in
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self = self else { return }
-                            self.timer?.invalidate()
-                            self.timer = nil
-                            self.leave()
-                        }
-                    }
-                }
             case .failure(let error):
                 print("Failed to stop recording: \(error.localizedDescription)")
                 self.onRecordingError?(error.localizedDescription)
-                self.callClient.leave { [weak self] result in
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self = self else { return }
-                        self.timer?.invalidate()
-                        self.timer = nil
-                        self.leave()
-                    }
-                }
             }
+        }
+
+        // 4. Ask the SDK to leave, then dismiss. `leave()` is idempotent, so the
+        //    watchdog below is a safe fallback if this callback never fires.
+        callClient.leave { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.leave()
+            }
+        }
+
+        // Watchdog: guarantee we dismiss even if neither the recording-stop nor
+        // the leave callback ever comes back (e.g. network lost).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.leave()
         }
     }
 

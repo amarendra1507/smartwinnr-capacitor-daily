@@ -27,7 +27,13 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func endCall(_ call: CAPPluginCall) {
         print("endCall triggered")
-        self.customViewController?.leave()
+        DispatchQueue.main.async { [weak self] in
+            // Route through the same idempotent teardown the End Role Play button
+            // uses so screen-share/PiP and recording are also torn down (a bare
+            // `leave()` would leave the screen-share PiP re-arming and recording
+            // running).
+            self?.customViewController?.performEndAndLeave(reason: "jsEndCall")
+        }
         call.resolve([
             "value": "left"
         ])

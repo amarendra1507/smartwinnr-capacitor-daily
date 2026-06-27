@@ -848,8 +848,10 @@ extension DailyCallViewController: AVPictureInPictureControllerDelegate {
         // foreground-active, rebuild and restart PiP so the floating window
         // stays visible across open/close cycles. Applies to both
         // document-share mode and plain video-mode screen share.
-        guard isScreenSharingActive else {
-            print("[PiP] didStop: not re-arming — screenShare=\(isScreenSharingActive)")
+        // Never re-arm once the session is ending — otherwise the floating
+        // window resurrects itself during dismissal.
+        guard isScreenSharingActive, !isEnding else {
+            print("[PiP] didStop: not re-arming — screenShare=\(isScreenSharingActive) ending=\(isEnding)")
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
