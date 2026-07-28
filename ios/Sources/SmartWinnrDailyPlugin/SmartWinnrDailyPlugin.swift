@@ -243,7 +243,7 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootViewController = windowScene.windows.first?.rootViewController {
-                viewController.modalPresentationStyle = .fullScreen // Set full screen presentation
+                viewController.modalPresentationStyle = .overFullScreen // Keep host WebView attached behind the opaque call VC to avoid black screen on dismiss
                 rootViewController.present(viewController, animated: true, completion: nil)
                 call.resolve([
                     "value": "Plugin started successfully."
