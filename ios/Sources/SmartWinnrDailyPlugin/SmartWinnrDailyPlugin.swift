@@ -241,10 +241,16 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 ])
             }
             
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            let rootViewController = windowScene.windows.first?.rootViewController {
+            // Present from the KEY, foreground-active window's top-most view
+            // controller. With SecureShield enabled the app can own multiple
+            // windows (e.g. an app-switcher blur window / secure overlay), so
+            // `connectedScenes.first` + `windows.first` is unreliable — it could
+            // return a non-key or wrong-sized window and squeeze the call UI.
+            // Selecting the key foreground window + top presenter guarantees a
+            // full-screen presentation context.
+            if let presenter = self.topMostPresenter() {
                 viewController.modalPresentationStyle = .overFullScreen // Keep host WebView attached behind the opaque call VC to avoid black screen on dismiss
-                rootViewController.present(viewController, animated: true, completion: nil)
+                presenter.present(viewController, animated: true, completion: nil)
                 call.resolve([
                     "value": "Plugin started successfully."
                 ])
@@ -252,7 +258,34 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Failed to present CustomViewController")
             }
         }
-                        
-                
+
+
+    }
+
+    /// Returns the top-most view controller of the app's key, foreground-active
+    /// window — the correct full-screen context to present the call VC from.
+    /// Resilient to multi-window setups (e.g. SecureShield's app-switcher blur /
+    /// secure overlay windows) where `connectedScenes.first`/`windows.first`
+    /// can point at the wrong or a non-full-size window.
+    private func topMostPresenter() -> UIViewController? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            // Prefer the scene that is actually on screen and interactive.
+            .sorted { lhs, rhs in
+                (lhs.activationState == .foregroundActive ? 0 : 1)
+                    < (rhs.activationState == .foregroundActive ? 0 : 1)
+            }
+            .flatMap { $0.windows }
+
+        // Pick the key window; fall back to the first visible, then any window.
+        let window = windows.first { $0.isKeyWindow }
+            ?? windows.first { !$0.isHidden && $0.alpha > 0 }
+            ?? windows.first
+
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        return top
     }
 }

@@ -596,26 +596,59 @@ final class PreCallView: UIView {
         card.layer.shadowRadius = 24
         card.layer.shadowOffset = CGSize(width: 0, height: 8)
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(stack)
+
+        // Host the content in a scroll view so it can NEVER clip on short
+        // devices (e.g. iPhone SE) or with large Dynamic Type — the card hugs
+        // its content on tall screens and scrolls internally on short ones.
+        let scroll = UIScrollView()
+        scroll.showsVerticalScrollIndicator = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(stack)
+        card.addSubview(scroll)
         addSubview(card)
 
-        // Width cap: prefer 420pt, but never overflow the safe area on a phone.
-        let preferredWidth = card.widthAnchor.constraint(equalToConstant: 420)
-        preferredWidth.priority = .defaultHigh
+        // Responsive width so the card looks consistent on every device and is
+        // never crushed by safe-area / SecureShield insets:
+        //   • It fills ~92% of the view's OWN width (not the safe-area width —
+        //     SecureShield can inflate the safe-area insets, which used to
+        //     squeeze the fixed 420pt card even narrower).
+        //   • Capped at 600pt so it stays a tidy centered modal on iPad instead
+        //     of the old fixed 420pt that looked tiny on large screens.
+        //   • Horizontal safety margins are relative to the VIEW BOUNDS (not the
+        //     safe area), so they can never collapse the card below its target.
+        // Near-required (999) so nothing — content intrinsic size, preview
+        // aspect ratio, etc. — can shrink the card below its target; it still
+        // yields to the required max-width cap and the edge margins.
+        let responsiveWidth = card.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.92)
+        responsiveWidth.priority = UILayoutPriority(999)
+        let maxWidth = card.widthAnchor.constraint(lessThanOrEqualToConstant: 600)
+
+        // Card hugs its content height on tall screens, but the required
+        // top/bottom safe-area margins cap it on short screens, where the scroll
+        // view then scrolls the overflow instead of clipping it.
+        let hugHeight = scroll.heightAnchor.constraint(equalTo: scroll.contentLayoutGuide.heightAnchor)
+        hugHeight.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
-            card.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor),
+            card.centerXAnchor.constraint(equalTo: centerXAnchor),
             card.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor),
-            preferredWidth,
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            card.trailingAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            responsiveWidth,
+            maxWidth,
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
+            card.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
             card.topAnchor.constraint(greaterThanOrEqualTo: safeAreaLayoutGuide.topAnchor, constant: 16),
             card.bottomAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor, constant: -16),
 
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 28),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24),
+            scroll.topAnchor.constraint(equalTo: card.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            hugHeight,
+
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 28),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -24),
+            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -24),
 
             // Preview keeps a consistent 4:3 tile inside the capped card width.
             previewContainer.heightAnchor.constraint(equalTo: previewContainer.widthAnchor, multiplier: 0.72),

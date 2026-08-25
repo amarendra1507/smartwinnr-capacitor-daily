@@ -646,26 +646,25 @@ extension DailyCallViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self = self, self.view.window != nil else { return }
             if self.isScreenSharingActive { return }
-            self.showDocumentSharePrompt()
+            self.showDocumentSharePrompt(mode: .initial)
         }
     }
 
-    private func showDocumentSharePrompt() {
-        guard !documentSharePromptShown else { return }
+    private func showDocumentSharePrompt(mode: DocumentSharePromptViewController.Mode) {
+        // Allow the recovery flow to re-present after a cancel: the guard only
+        // blocks a duplicate present, not a fresh retry.
         guard presentedViewController == nil else { return }
+        guard !isScreenSharingActive else { return }
         documentSharePromptShown = true
 
         let prompt = DocumentSharePromptViewController()
         prompt.delegate = self
-        prompt.modalPresentationStyle = .pageSheet
-
-        if #available(iOS 15.0, *) {
-            if let sheet = prompt.sheetPresentationController {
-                sheet.detents = [.medium()]
-                sheet.preferredCornerRadius = 20
-                sheet.prefersGrabberVisible = false
-            }
-        }
+        prompt.mode = mode
+        // Present as a compact, centered popup over a dimmed backdrop (the VC
+        // draws its own dim + centered light card) instead of a wide bottom
+        // sheet. crossDissolve gives it a gentle fade-in like an alert.
+        prompt.modalPresentationStyle = .overFullScreen
+        prompt.modalTransitionStyle = .crossDissolve
 
         present(prompt, animated: true)
     }
@@ -865,5 +864,53 @@ extension DailyCallViewController: DocumentSharePromptDelegate {
     func documentSharePromptDidConfirm() {
         guard !isScreenSharingActive else { return }
         showBroadcastSystemPicker()
+        // If the broadcast doesn't actually start (user cancels Apple's picker),
+        // recover instead of leaving them stuck with no recording.
+        startBroadcastWatchdog()
+    }
+
+    func documentSharePromptDidCancel() {
+        // The user dismissed the prompt without sharing. A shareable-document role
+        // play needs the screen shared so what they present is captured with the
+        // (already-running) session, so gently re-ask (retry copy) after a short
+        // beat rather than silently leaving their presentation out of the session.
+        cancelBroadcastWatchdog()
+        presentScreenShareRetry(afterDelay: 0.4)
+    }
+
+    /// Wait a few seconds for `callClientDidDetectStartOfSystemBroadcast` to flip
+    /// `isScreenSharingActive`. If it hasn't (the picker was cancelled or the
+    /// broadcast failed to start), re-present the prompt in retry mode.
+    func startBroadcastWatchdog() {
+        cancelBroadcastWatchdog()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.view.window != nil else { return }
+            if self.isScreenSharingActive { return }
+            self.dismissBroadcastPicker()
+            self.presentScreenShareRetry(afterDelay: 0)
+        }
+        screenShareWatchdog = work
+        // ~10s: long enough that a slow-but-genuine user has tapped "Start
+        // Broadcast" (which cancels this via the broadcast-start callback) before
+        // it fires, so it effectively only triggers when they actually cancelled.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0, execute: work)
+    }
+
+    func cancelBroadcastWatchdog() {
+        screenShareWatchdog?.cancel()
+        screenShareWatchdog = nil
+    }
+
+    /// Re-present the share prompt in retry mode, capped so a user who keeps
+    /// declining isn't trapped in an endless loop.
+    private func presentScreenShareRetry(afterDelay delay: TimeInterval) {
+        guard screenSharePromptRetryCount < 3 else { return }
+        screenSharePromptRetryCount += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.view.window != nil else { return }
+            if self.isScreenSharingActive { return }
+            self.documentSharePromptShown = false
+            self.showDocumentSharePrompt(mode: .retry)
+        }
     }
 }

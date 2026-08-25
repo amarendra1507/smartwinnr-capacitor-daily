@@ -129,6 +129,13 @@ class DailyCallViewController: UIViewController {
     var documentTitle: String?
     var documentShareActivated: Bool = false
     var documentSharePromptShown: Bool = false
+    // Watchdog that re-prompts if the user opens Apple's broadcast picker but the
+    // broadcast never actually starts (e.g. they cancel it). ReplayKit gives no
+    // "cancelled" callback, so we detect it by timeout. Cancelled on real start.
+    var screenShareWatchdog: DispatchWorkItem?
+    // How many times we've re-asked after a decline/cancel, so we stop nudging
+    // instead of trapping the user in an endless prompt loop.
+    var screenSharePromptRetryCount: Int = 0
 
     // All sharable resources (from `sharable_resources`) and which one is
     // currently being rendered. Index 0 is used by default.

@@ -76,15 +76,10 @@ extension DailyCallViewController {
     func showScreenShareModal() {
         let modalViewController = ScreenShareModalViewController()
         modalViewController.delegate = self
-        modalViewController.modalPresentationStyle = .pageSheet
-
-        if #available(iOS 15.0, *) {
-            if let sheet = modalViewController.sheetPresentationController {
-                sheet.detents = [.medium()]
-                sheet.prefersGrabberVisible = true
-                sheet.preferredCornerRadius = 20
-            }
-        }
+        // Centered light popup over a dimmed backdrop (the VC draws its own dim +
+        // card), matching the document-share prompt — not the old page sheet.
+        modalViewController.modalPresentationStyle = .overFullScreen
+        modalViewController.modalTransitionStyle = .crossDissolve
 
         present(modalViewController, animated: true, completion: nil)
     }
@@ -106,21 +101,40 @@ extension DailyCallViewController: ScreenShareModalDelegate {
     // MARK: - Broadcast System Picker
 
     func showBroadcastSystemPicker() {
+        // Avoid stacking multiple hidden pickers across retries.
+        if let existing = systemBroadcastPickerView {
+            existing.removeFromSuperview()
+            systemBroadcastPickerView = nil
+        }
+
         let broadcastPicker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
         broadcastPicker.preferredExtension = "com.quizprompt.app.ScreenBroadcast"
         broadcastPicker.showsMicrophoneButton = false
 
         broadcastPicker.alpha = 0.01
         view.addSubview(broadcastPicker)
-
         self.systemBroadcastPickerView = broadcastPicker
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.triggerBroadcastPickerButton(in: broadcastPicker)
+        // The picker's internal UIButton isn't guaranteed to exist immediately on
+        // first use, so force a layout pass and RETRY the tap until it's ready.
+        // Previously we tapped once after 0.1s and removed the picker after 0.5s,
+        // so the very first attempt usually did nothing (button not built yet) —
+        // hence "works only on the second try". We also no longer remove the
+        // picker on a timer: it's removed when the broadcast actually starts
+        // (`dismissBroadcastPicker`) or by the retry watchdog.
+        view.layoutIfNeeded()
+        tapBroadcastPickerButton(broadcastPicker, attempt: 0)
+    }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                broadcastPicker.removeFromSuperview()
-            }
+    /// Repeatedly attempts to tap the broadcast picker's internal button until it
+    /// exists (or we hit the attempt cap / the broadcast starts / the picker is
+    /// torn down). Fixes the "first tap does nothing" race on first use.
+    private func tapBroadcastPickerButton(_ picker: RPSystemBroadcastPickerView, attempt: Int) {
+        guard picker.superview != nil, !isScreenSharingActive else { return }
+        if triggerBroadcastPickerButton(in: picker) { return } // found & tapped
+        guard attempt < 8 else { return } // ~1.2s of retries max
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.tapBroadcastPickerButton(picker, attempt: attempt + 1)
         }
     }
 
@@ -133,14 +147,18 @@ extension DailyCallViewController: ScreenShareModalDelegate {
         }
     }
 
-    func triggerBroadcastPickerButton(in view: UIView) {
+    /// Recursively finds and taps the picker's internal button.
+    /// Returns true once a button was found and tapped.
+    @discardableResult
+    func triggerBroadcastPickerButton(in view: UIView) -> Bool {
         for subview in view.subviews {
             if let button = subview as? UIButton {
                 button.sendActions(for: .touchUpInside)
-                return
-            } else {
-                triggerBroadcastPickerButton(in: subview)
+                return true
+            } else if triggerBroadcastPickerButton(in: subview) {
+                return true
             }
         }
+        return false
     }
 }

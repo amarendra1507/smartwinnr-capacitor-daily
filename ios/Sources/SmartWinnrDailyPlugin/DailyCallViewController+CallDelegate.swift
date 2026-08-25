@@ -16,6 +16,8 @@ extension DailyCallViewController: CallClientDelegate {
     func callClientDidDetectStartOfSystemBroadcast(_ callClient: CallClient) {
         print("[PiP] === BROADCAST STARTED === documentShareActivated=\(documentShareActivated)")
         isScreenSharingActive = true
+        // Broadcast really started — stop the retry watchdog so it doesn't fire.
+        cancelBroadcastWatchdog()
         updateScreenShareButton()
         dismissBroadcastPicker()
 
