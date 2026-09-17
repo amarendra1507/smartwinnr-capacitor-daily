@@ -76,6 +76,11 @@ final class DocumentSharePromptViewController: UIViewController {
     var mode: Mode = .initial
 
     private weak var ctaButton: GradientButton?
+    // Kept so viewDidLayoutSubviews can pin their preferredMaxLayoutWidth to the
+    // real laid-out width — otherwise a multiline label inside the scroll view
+    // can size its height at the wrong width and clip the last line.
+    private weak var promptTitleLabel: UILabel?
+    private weak var promptIntroLabel: UILabel?
 
     // Light palette + a modern indigo→violet gradient for accents.
     private enum Palette {
@@ -99,6 +104,11 @@ final class DocumentSharePromptViewController: UIViewController {
         static let stepsCaption = "ON THE NEXT SCREEN, JUST:"
         static let step1 = "Make sure \u{201C}ScreenBroadcast\u{201D} is ticked"
         static let step2 = "Tap \u{201C}Start Sharing\u{201D}"
+        // After the broadcast starts iOS shows a red recording indicator at the
+        // top (and the timer starts) — it never says "sharing started". Apple's
+        // sharing box can linger, so tapping the dimmed area outside it dismisses
+        // it and returns the user to the role play.
+        static let step3 = "Once you see the red recording dot at the top of the screen, tap the greyed-out area outside the box to close it and return to your role play"
         static let guidance = "Your whole screen is shared, so turn on Do Not Disturb to avoid interruptions."
         static let privacy = "Your screen is shared only during this role play and stops when you end the session."
         static let notNow = "Not now"
@@ -128,7 +138,25 @@ final class DocumentSharePromptViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         startCtaPulse()
-        
+
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Pin each multiline label's wrap width to its actual width so it reports
+        // the correct (taller) intrinsic height and never clips its last line.
+        // Guarded so it only relayouts when the width actually changed (no loop).
+        var needsRelayout = false
+        for label in [promptTitleLabel, promptIntroLabel].compactMap({ $0 }) {
+            let width = label.bounds.width
+            if width > 0 && abs(label.preferredMaxLayoutWidth - width) > 0.5 {
+                label.preferredMaxLayoutWidth = width
+                needsRelayout = true
+            }
+        }
+        if needsRelayout {
+            view.layoutIfNeeded()
+        }
     }
     
 
@@ -178,6 +206,8 @@ final class DocumentSharePromptViewController: UIViewController {
         titleLabel.textColor = Palette.textPrimary
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let introLabel = UILabel()
         introLabel.text = introText
@@ -185,6 +215,12 @@ final class DocumentSharePromptViewController: UIViewController {
         introLabel.textColor = Palette.textSecondary
         introLabel.textAlignment = .center
         introLabel.numberOfLines = 0
+        introLabel.lineBreakMode = .byWordWrapping
+        // Never truncate the intro — it must wrap to its full height (the scroll
+        // view absorbs any overflow on short screens).
+        introLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        self.promptTitleLabel = titleLabel
+        self.promptIntroLabel = introLabel
 
         let stepsGuide = makeStepsGuide()
 
@@ -357,8 +393,9 @@ final class DocumentSharePromptViewController: UIViewController {
 
         let step1 = makeStepRow(number: 1, text: Copy.step1, accessory: makeExtensionChip())
         let step2 = makeStepRow(number: 2, text: Copy.step2, accessory: makeStartPill())
+        let step3 = makeStepRow(number: 3, text: Copy.step3, accessory: makeTapHintChip())
 
-        let content = UIStackView(arrangedSubviews: [caption, step1, step2])
+        let content = UIStackView(arrangedSubviews: [caption, step1, step2, step3])
         content.axis = .vertical
         content.alignment = .fill
         content.spacing = 12
@@ -375,7 +412,7 @@ final class DocumentSharePromptViewController: UIViewController {
         return card
     }
 
-    private func makeStepRow(number: Int, text: String, accessory: UIView) -> UIView {
+    private func makeStepRow(number: Int, text: String, accessory: UIView? = nil) -> UIView {
         let badge = makeStepNumber(number)
 
         let label = UILabel()
@@ -383,18 +420,37 @@ final class DocumentSharePromptViewController: UIViewController {
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textColor = Palette.textPrimary
         label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Never clip the instruction vertically — it must wrap to as many lines
+        // as needed rather than truncate.
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        accessory.setContentHuggingPriority(.required, for: .horizontal)
-        accessory.setContentCompressionResistancePriority(.required, for: .horizontal)
+        var arranged: [UIView] = [badge, label]
+        if let accessory = accessory {
+            accessory.setContentHuggingPriority(.required, for: .horizontal)
+            accessory.setContentCompressionResistancePriority(.required, for: .horizontal)
+            arranged.append(accessory)
+        }
 
-        let row = UIStackView(arrangedSubviews: [badge, label, accessory])
+        let row = UIStackView(arrangedSubviews: arranged)
         row.axis = .horizontal
         row.alignment = .center
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
         return row
+    }
+
+    /// Step 3 illustrative chip: a small "tap outside" hint icon.
+    private func makeTapHintChip() -> UIView {
+        let icon = UIImageView(image: UIImage(systemName: "hand.tap.fill"))
+        icon.tintColor = Palette.accent
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        return icon
     }
 
     /// Small gradient number badge (1, 2, …).

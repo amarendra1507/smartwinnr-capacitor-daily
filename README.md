@@ -22,6 +22,8 @@ npx cap sync
 * [`addListener('pdfTrackingUpdate', ...)`](#addlistenerpdftrackingupdate-)
 * [`addListener('pdfLoadError', ...)`](#addlistenerpdfloaderror-)
 * [`addListener('pagePresentationTracking', ...)`](#addlistenerpagepresentationtracking-)
+* [`addListener('videoStateChanged', ...)`](#addlistenervideostatechanged-)
+* [`addListener('videoLoadError', ...)`](#addlistenervideoloaderror-)
 * [Interfaces](#interfaces)
 
 </docgen-index>
@@ -193,16 +195,63 @@ presentation entries across the session. iOS only.
 --------------------
 
 
+### addListener('videoStateChanged', ...)
+
+```typescript
+addListener(eventName: 'videoStateChanged', listenerFunc: (event: VideoStateChangedEvent) => void) => Promise<PluginListenerHandle>
+```
+
+Fires when a video sharable resource's playback state changes (play/pause,
+periodic progress, and on end). Only emitted for `resource_type: 'video'`
+resources when the call was joined with `is_sharable_resources_available: true`.
+iOS only.
+
+| Param              | Type                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| **`eventName`**    | <code>'videoStateChanged'</code>                                                              |
+| **`listenerFunc`** | <code>(event: <a href="#videostatechangedevent">VideoStateChangedEvent</a>) =&gt; void</code> |
+
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
+
+**Since:** 3.3.0
+
+--------------------
+
+
+### addListener('videoLoadError', ...)
+
+```typescript
+addListener(eventName: 'videoLoadError', listenerFunc: (event: VideoLoadErrorEvent) => void) => Promise<PluginListenerHandle>
+```
+
+Fires if a video sharable resource fails to load or play. iOS only.
+
+| Param              | Type                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| **`eventName`**    | <code>'videoLoadError'</code>                                                           |
+| **`listenerFunc`** | <code>(event: <a href="#videoloaderrorevent">VideoLoadErrorEvent</a>) =&gt; void</code> |
+
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
+
+**Since:** 3.3.0
+
+--------------------
+
+
 ### Interfaces
 
 
 #### SharableResource
 
-| Prop               | Type                |
-| ------------------ | ------------------- |
-| **`id`**           | <code>string</code> |
-| **`url`**          | <code>string</code> |
-| **`display_name`** | <code>string</code> |
+| Prop                   | Type                          | Description                                                                                                                                     | Since |
+| ---------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| **`id`**               | <code>string</code>           |                                                                                                                                                 |       |
+| **`url`**              | <code>string</code>           |                                                                                                                                                 |       |
+| **`display_name`**     | <code>string</code>           |                                                                                                                                                 |       |
+| **`resource_type`**    | <code>'pdf' \| 'video'</code> | Resource kind. Defaults to 'pdf' when omitted (backwards compatible). A 'video' resource is rendered natively (AVPlayer on `hls_resource_url`). | 3.3.0 |
+| **`hls_resource_url`** | <code>string</code>           | For a video resource: the HLS playlist url the native player streams.                                                                           | 3.3.0 |
+| **`poster_url`**       | <code>string</code>           | For a video resource: a poster/thumbnail image url.                                                                                             | 3.3.0 |
+| **`video_id`**         | <code>string</code>           | For a video resource: the Bunny.net video id (metadata).                                                                                        | 3.3.0 |
 
 
 #### PluginListenerHandle
@@ -260,5 +309,23 @@ presentation entries across the session. iOS only.
 | **`startTime`**   | <code>number</code> |
 | **`endTime`**     | <code>number</code> |
 | **`timeSpentMs`** | <code>number</code> |
+
+
+#### VideoStateChangedEvent
+
+| Prop                | Type                 | Description                                                    |
+| ------------------- | -------------------- | -------------------------------------------------------------- |
+| **`isPlaying`**     | <code>boolean</code> | Whether the video is currently playing.                        |
+| **`currentTimeMs`** | <code>number</code>  | Current playback position in milliseconds.                     |
+| **`durationMs`**    | <code>number</code>  | Total video duration in milliseconds (0 until known).          |
+| **`ended`**         | <code>boolean</code> | True when the emit was triggered by playback reaching the end. |
+
+
+#### VideoLoadErrorEvent
+
+| Prop        | Type                |
+| ----------- | ------------------- |
+| **`error`** | <code>string</code> |
+| **`url`**   | <code>string</code> |
 
 </docgen-api>

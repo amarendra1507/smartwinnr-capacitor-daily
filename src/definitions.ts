@@ -39,6 +39,47 @@ export interface SharableResource {
   id: string;
   url: string;
   display_name?: string;
+  /**
+   * Resource kind. Defaults to 'pdf' when omitted (backwards compatible). A
+   * 'video' resource is rendered natively (AVPlayer on `hls_resource_url`).
+   *
+   * @since 3.3.0
+   */
+  resource_type?: 'pdf' | 'video';
+  /**
+   * For a video resource: the HLS playlist url the native player streams.
+   *
+   * @since 3.3.0
+   */
+  hls_resource_url?: string;
+  /**
+   * For a video resource: a poster/thumbnail image url.
+   *
+   * @since 3.3.0
+   */
+  poster_url?: string;
+  /**
+   * For a video resource: the Bunny.net video id (metadata).
+   *
+   * @since 3.3.0
+   */
+  video_id?: string;
+}
+
+export interface VideoStateChangedEvent {
+  /** Whether the video is currently playing. */
+  isPlaying: boolean;
+  /** Current playback position in milliseconds. */
+  currentTimeMs: number;
+  /** Total video duration in milliseconds (0 until known). */
+  durationMs: number;
+  /** True when the emit was triggered by playback reaching the end. */
+  ended?: boolean;
+}
+
+export interface VideoLoadErrorEvent {
+  error: string;
+  url?: string;
 }
 
 export interface SmartWinnrDailyPlugin {
@@ -137,5 +178,26 @@ export interface SmartWinnrDailyPlugin {
   addListener(
     eventName: 'pagePresentationTracking',
     listenerFunc: (event: { entries: PagePresentationEntry[] }) => void,
+  ): Promise<PluginListenerHandle>;
+  /**
+   * Fires when a video sharable resource's playback state changes (play/pause,
+   * periodic progress, and on end). Only emitted for `resource_type: 'video'`
+   * resources when the call was joined with `is_sharable_resources_available: true`.
+   * iOS only.
+   *
+   * @since 3.3.0
+   */
+  addListener(
+    eventName: 'videoStateChanged',
+    listenerFunc: (event: VideoStateChangedEvent) => void,
+  ): Promise<PluginListenerHandle>;
+  /**
+   * Fires if a video sharable resource fails to load or play. iOS only.
+   *
+   * @since 3.3.0
+   */
+  addListener(
+    eventName: 'videoLoadError',
+    listenerFunc: (event: VideoLoadErrorEvent) => void,
   ): Promise<PluginListenerHandle>;
 }

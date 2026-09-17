@@ -95,7 +95,11 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             return DailyCallViewController.SharableResourceItem(
                 id: id,
                 url: url,
-                displayName: entry["display_name"] as? String
+                displayName: entry["display_name"] as? String,
+                resourceType: entry["resource_type"] as? String,
+                hlsResourceUrl: entry["hls_resource_url"] as? String,
+                posterUrl: entry["poster_url"] as? String,
+                videoId: entry["video_id"] as? String
             )
         }
         let firstResource = sharableItems.first
@@ -170,6 +174,16 @@ public class SmartWinnrDailyPlugin: CAPPlugin, CAPBridgedPlugin {
             viewController.onPagePresentationTracking = { [weak self] entries in
                 self?.notifyListeners("pagePresentationTracking", data: [
                     "entries": entries
+                ])
+            }
+
+            viewController.onVideoStateChanged = { [weak self] data in
+                self?.notifyListeners("videoStateChanged", data: data)
+            }
+
+            viewController.onVideoLoadError = { [weak self] error in
+                self?.notifyListeners("videoLoadError", data: [
+                    "error": error
                 ])
             }
 

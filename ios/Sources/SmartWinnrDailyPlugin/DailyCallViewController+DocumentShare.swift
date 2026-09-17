@@ -15,17 +15,75 @@
 import UIKit
 import PDFKit
 
-/// Shared visual style for the document-share HUD controls.
+/// Shared visual style for the document-share HUD controls. Light "floating
+/// chip" look: a near-white capsule with dark text, a hairline border and a
+/// soft shadow — reads cleanly over both the white PDF and a dark video (much
+/// nicer than the old solid-black pills).
 enum DocumentShareStyle {
+    static let hudText = UIColor(white: 0.13, alpha: 1.0)
+    static let hudFill = UIColor.white.withAlphaComponent(0.96)
+    static let hudBorder = UIColor(white: 0, alpha: 0.10)
+
+    private static func applyChrome(_ b: UIButton, cornerRadius: CGFloat) {
+        b.layer.cornerRadius = cornerRadius
+        b.layer.borderWidth = 0.5
+        b.layer.borderColor = hudBorder.cgColor
+        b.layer.masksToBounds = false
+        b.layer.shadowColor = UIColor.black.cgColor
+        b.layer.shadowOpacity = 0.18
+        b.layer.shadowRadius = 5
+        b.layer.shadowOffset = CGSize(width: 0, height: 2)
+    }
+
     static func pillButton() -> UIButton {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.backgroundColor = UIColor(white: 0, alpha: 0.72)
-        b.setTitleColor(.white, for: .normal)
+        b.backgroundColor = hudFill
+        b.tintColor = hudText
+        b.setTitleColor(hudText, for: .normal)
         b.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
-        b.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        b.layer.cornerRadius = 14
-        b.layer.masksToBounds = true
+        b.contentEdgeInsets = UIEdgeInsets(top: 7, left: 14, bottom: 7, right: 14)
+        applyChrome(b, cornerRadius: 16)
+        return b
+    }
+
+    /// The resource selector: same floating-chip look plus a trailing chevron so
+    /// it reads as a dropdown. Uses UIButton.Configuration on iOS 15+ and
+    /// degrades to a classic styled button below that.
+    static func selectorButton() -> UIButton {
+        let b = UIButton(type: .system)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.tintColor = hudText
+
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.plain()
+            config.baseForegroundColor = hudText
+            config.background.backgroundColor = hudFill
+            config.background.cornerRadius = 17
+            config.image = UIImage(systemName: "chevron.down")
+            config.imagePlacement = .trailing
+            config.imagePadding = 8
+            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 12)
+            config.titleLineBreakMode = .byTruncatingTail
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var out = incoming
+                out.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+                return out
+            }
+            b.configuration = config
+        } else {
+            b.backgroundColor = hudFill
+            b.setTitleColor(hudText, for: .normal)
+            b.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+            b.titleLabel?.lineBreakMode = .byTruncatingTail
+            b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 12)
+        }
+
+        applyChrome(b, cornerRadius: 17)
+        // Cap the width so a long document name truncates instead of pushing the
+        // toggle off-screen.
+        b.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
         return b
     }
 }
@@ -239,7 +297,7 @@ extension DailyCallViewController {
     func enterDocumentShareMode() {
         guard isDocumentShareEnabled else { return }
         guard !documentShareActivated else { return }
-        guard let urlString = documentUrlString, let pdfURL = URL(string: urlString) else {
+        guard currentResourceIndex >= 0, currentResourceIndex < sharableResourceItems.count else {
             onPdfLoadError?("Invalid documentUrl")
             return
         }
@@ -247,21 +305,32 @@ extension DailyCallViewController {
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.view.window != nil else { return }
-            self.installDocumentShareLayout(pdfURL: pdfURL)
+            self.installDocumentShareLayout()
             self.requestDeviceScreenRecording()
         }
     }
 
     /// Display name for a resource (falls back to "Document N" when none).
+    /// Plain resource name (no type glyph) — used for the selector button and the
+    /// icon-bearing dropdown menu.
+    private func resourceName(for index: Int) -> String {
+        guard index >= 0, index < sharableResourceItems.count else { return "Document" }
+        let item = sharableResourceItems[index]
+        if let name = item.displayName, !name.isEmpty { return name }
+        return item.isVideo ? "Video \(index + 1)" : "Document \(index + 1)"
+    }
+
+    /// Name with a leading ▶ glyph for video — used only by the pre-iOS-14
+    /// action-sheet fallback, which can't show per-item icons.
     private func displayTitle(for index: Int) -> String {
         guard index >= 0, index < sharableResourceItems.count else { return "Document" }
-        if let name = sharableResourceItems[index].displayName, !name.isEmpty { return name }
-        return "Document \(index + 1)"
+        let prefix = sharableResourceItems[index].isVideo ? "▶ " : ""
+        return prefix + resourceName(for: index)
     }
 
     // MARK: - Layout installation
 
-    private func installDocumentShareLayout(pdfURL: URL) {
+    private func installDocumentShareLayout() {
         // 1. The existing two-tile stack must stay *visible* (not isHidden)
         //    because the native PiP uses `newRemoteVideoView` inside this
         //    stack as its `activeVideoCallSourceView`. iOS will only render
@@ -295,6 +364,7 @@ extension DailyCallViewController {
         docShareBackdrop.backgroundColor = UIColor(white: 0.94, alpha: 1.0)
         docShareBackdrop.isUserInteractionEnabled = false
         newContentContainerView.insertSubview(docShareBackdrop, belowSubview: pdfContainer)
+        self.docShareBackdropView = docShareBackdrop
         NSLayoutConstraint.activate([
             // Cover the whole video-tile zone: from just below the timer to
             // just above the controls row, full width. Matches exactly the
@@ -305,22 +375,8 @@ extension DailyCallViewController {
             docShareBackdrop.bottomAnchor.constraint(equalTo: controlsRow.topAnchor, constant: 0),
         ])
 
-        // 3. Build the PDF view and add it into the container.
-        let pdf = DocumentSharePdfView(url: pdfURL)
-        pdf.translatesAutoresizingMaskIntoConstraints = false
-        pdf.onPageChanged = { [weak self] page, total in
-            self?.onPdfPageChanged?(page, total)
-            self?.recordPagePresentation(pageNumber: page)
-            self?.showPageIndicator(current: page, total: total)
-        }
-        pdf.onTrackingUpdate = { [weak self] snapshot in
-            self?.onPdfTrackingUpdate?(snapshot)
-        }
-        pdf.onLoadError = { [weak self] message in
-            self?.onPdfLoadError?(message)
-        }
-        pdfContainer.addSubview(pdf)
-        self.pdfDocumentView = pdf
+        // 3. The active content view (PDF or video) is created in mountContent(),
+        //    which the layout calls once the scaffolding below is in place.
 
         // 4. No custom floating video tile inside the doc-share UI — the
         //    draggable AI/user composite was causing the AI stream to blank
@@ -340,6 +396,7 @@ extension DailyCallViewController {
         topBar.alignment = .center
         topBar.translatesAutoresizingMaskIntoConstraints = false
         pdfContainer.addSubview(topBar)
+        self.documentTopBarView = topBar
 
         // Toggle (sidebar button) sits FIRST/left — same relationship the
         // native Preview app has between its sidebar icon and title.
@@ -350,9 +407,16 @@ extension DailyCallViewController {
         self.thumbnailToggleButton = toggle
 
         if sharableResourceItems.count > 1 {
-            let selector = DocumentShareStyle.pillButton()
-            selector.addTarget(self, action: #selector(handleResourceSelectorTapped), for: .touchUpInside)
+            let selector = DocumentShareStyle.selectorButton()
             self.resourceSelectorButton = selector
+            if #available(iOS 14.0, *) {
+                // Modern inline dropdown: icons per type + a checkmark on the
+                // active resource. No action-sheet round-trip.
+                selector.showsMenuAsPrimaryAction = true
+                selector.menu = makeResourceMenu()
+            } else {
+                selector.addTarget(self, action: #selector(handleResourceSelectorTapped), for: .touchUpInside)
+            }
             updateResourceSelectorTitle()
             topBar.addArrangedSubview(selector)
         }
@@ -385,12 +449,9 @@ extension DailyCallViewController {
         thumbView.translatesAutoresizingMaskIntoConstraints = false
         thumbView.backgroundColor = .clear
         drawer.addSubview(thumbView)
-        // Binding pdfView triggers reload once its document is set; the
-        // onDocumentLoaded callback below covers the async network case.
-        thumbView.pdfView = pdf.pdfView
-        pdf.onDocumentLoaded = { [weak thumbView] _ in
-            thumbView?.reload()
-        }
+        // The PDFView binding happens in mountPdfContent() when a PDF resource is
+        // actually mounted; a video resource leaves the sidebar hidden and unbound.
+        self.thumbnailListView = thumbView
 
         let drawerLeading = drawer.leadingAnchor.constraint(
             equalTo: pdfContainer.leadingAnchor,
@@ -420,22 +481,13 @@ extension DailyCallViewController {
         pdfContainer.bringSubviewToFront(drawer)
         pdfContainer.bringSubviewToFront(topBar)
 
-        // 6. Activate constraints: PDF fills content area, overlay on top.
-        //    The PDF/overlay share a shiftable leading constraint so the
-        //    sidebar can push them right when it opens (Preview behavior).
-        let pdfLeading = pdf.leadingAnchor.constraint(equalTo: pdfContainer.leadingAnchor)
-        self.pdfContentLeadingConstraint = pdfLeading
-
+        // 6. Activate the container constraints. The content view (PDF or video)
+        //    is pinned inside the container by mountContent().
         NSLayoutConstraint.activate([
             pdfContainer.topAnchor.constraint(equalTo: newTimerLabel.bottomAnchor, constant: 10),
             pdfContainer.leadingAnchor.constraint(equalTo: newContentContainerView.leadingAnchor, constant: 12),
             pdfContainer.trailingAnchor.constraint(equalTo: newContentContainerView.trailingAnchor, constant: -12),
             pdfContainer.bottomAnchor.constraint(equalTo: controlsRow.topAnchor, constant: -10),
-
-            pdf.topAnchor.constraint(equalTo: pdfContainer.topAnchor),
-            pdfLeading,
-            pdf.trailingAnchor.constraint(equalTo: pdfContainer.trailingAnchor),
-            pdf.bottomAnchor.constraint(equalTo: pdfContainer.bottomAnchor),
         ])
 
         // 5d. Floating page-number pill (like Books / Preview) — fades in on
@@ -460,11 +512,143 @@ extension DailyCallViewController {
             indicator.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
 
-        // 7. Start loading the PDF (animated fade-in of the new UI).
+        // 7. Mount the active resource's content (PDF or video) and fade in.
         pdfContainer.alpha = 0
-        pdf.load()
+        mountContent(at: currentResourceIndex)
         UIView.animate(withDuration: 0.35) {
             pdfContainer.alpha = 1
+        }
+    }
+
+    // MARK: - Content mounting (PDF or video)
+
+    func activeResourceIsVideo() -> Bool {
+        guard currentResourceIndex >= 0, currentResourceIndex < sharableResourceItems.count else { return false }
+        return sharableResourceItems[currentResourceIndex].isVideo
+    }
+
+    /// Mounts (or swaps in) the content view for the resource at `index` inside
+    /// the shared container, finalizing/removing any outgoing content first and
+    /// toggling the PDF-only chrome (sidebar / page pill) for video resources.
+    private func mountContent(at index: Int) {
+        guard let container = pdfContainerView else { return }
+        guard index >= 0, index < sharableResourceItems.count else {
+            onPdfLoadError?("Invalid documentUrl")
+            return
+        }
+        let item = sharableResourceItems[index]
+
+        // Finalize + remove any outgoing content.
+        pdfDocumentView?.finalizeTracking()
+        videoDocumentView?.finalizePlayback()
+        closeActivePagePresentationEntry()
+        documentContentView?.removeFromSuperview()
+        documentContentView = nil
+        pdfDocumentView = nil
+        videoDocumentView = nil
+        pdfContentLeadingConstraint = nil
+
+        currentResourceIndex = index
+        documentUrlString = item.url
+        documentTitle = item.displayName
+        updateResourceSelectorTitle()
+
+        if item.isVideo {
+            mountVideoContent(item: item, container: container)
+        } else {
+            mountPdfContent(item: item, container: container)
+        }
+
+        // Keep chrome above the freshly-mounted content. Note: the toggle and the
+        // resource selector are stack children of documentTopBarView, so we raise
+        // the top bar itself (raising the buttons on `container` would be a no-op
+        // and leave the selector hidden behind the content).
+        if let strip = thumbnailStripView { container.bringSubviewToFront(strip) }
+        if let topBar = documentTopBarView { container.bringSubviewToFront(topBar) }
+        if let indicator = pageIndicatorLabel { container.bringSubviewToFront(indicator) }
+        if let pip = combinedPipContainerView { pip.superview?.bringSubviewToFront(pip) }
+    }
+
+    private func mountPdfContent(item: SharableResourceItem, container: UIView) {
+        setPdfChromeHidden(false)
+        guard let url = URL(string: item.url) else {
+            onPdfLoadError?("Invalid documentUrl")
+            return
+        }
+        let pdf = DocumentSharePdfView(url: url)
+        pdf.translatesAutoresizingMaskIntoConstraints = false
+        pdf.onPageChanged = { [weak self] page, total in
+            self?.onPdfPageChanged?(page, total)
+            self?.recordPagePresentation(pageNumber: page)
+            self?.showPageIndicator(current: page, total: total)
+        }
+        pdf.onTrackingUpdate = { [weak self] snapshot in
+            self?.onPdfTrackingUpdate?(snapshot)
+        }
+        pdf.onLoadError = { [weak self] message in
+            self?.onPdfLoadError?(message)
+        }
+        container.addSubview(pdf)
+        self.pdfDocumentView = pdf
+        self.documentContentView = pdf
+
+        // Shiftable leading so the sidebar can push the page right when it opens.
+        let leading = pdf.leadingAnchor.constraint(
+            equalTo: container.leadingAnchor,
+            constant: isThumbnailStripVisible ? thumbnailDrawerWidth : 0
+        )
+        self.pdfContentLeadingConstraint = leading
+        NSLayoutConstraint.activate([
+            pdf.topAnchor.constraint(equalTo: container.topAnchor),
+            leading,
+            pdf.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            pdf.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        // Bind the sidebar to this PDF's PDFView.
+        if let thumb = thumbnailListView {
+            thumb.pdfView = pdf.pdfView
+            pdf.onDocumentLoaded = { [weak thumb] _ in thumb?.reload() }
+        }
+        pdf.load()
+    }
+
+    private func mountVideoContent(item: SharableResourceItem, container: UIView) {
+        setPdfChromeHidden(true)
+        let embed = URL(string: item.url)
+        let hls = item.hlsResourceUrl.flatMap { URL(string: $0) }
+        let poster = item.posterUrl.flatMap { URL(string: $0) }
+        let video = DocumentShareVideoView(embedURL: embed, hlsURL: hls, posterURL: poster)
+        video.translatesAutoresizingMaskIntoConstraints = false
+        video.onStateChanged = { [weak self] data in self?.onVideoStateChanged?(data) }
+        video.onLoadError = { [weak self] message in self?.onVideoLoadError?(message) }
+        container.addSubview(video)
+        self.videoDocumentView = video
+        self.documentContentView = video
+
+        NSLayoutConstraint.activate([
+            video.topAnchor.constraint(equalTo: container.topAnchor),
+            video.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            video.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            video.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        video.load()
+        // The native player is an AVPlayerViewController — add it as a child so
+        // it participates in the VC hierarchy (appearance/rotation forwarding).
+        video.attach(to: self)
+    }
+
+    /// Hides/shows the PDF-only chrome (sidebar toggle, sidebar, page pill) — a
+    /// video resource has none of these. Also closes the sidebar if it was open.
+    private func setPdfChromeHidden(_ hidden: Bool) {
+        thumbnailToggleButton?.isHidden = hidden
+        thumbnailStripView?.isHidden = hidden
+        pageIndicatorLabel?.isHidden = hidden
+        if hidden && isThumbnailStripVisible {
+            isThumbnailStripVisible = false
+            thumbnailDrawerLeadingConstraint?.constant = -thumbnailDrawerWidth
+            pdfContentLeadingConstraint?.constant = 0
+            thumbnailToggleButton?.setTitle("☰ Pages", for: .normal)
         }
     }
 
@@ -673,15 +857,42 @@ extension DailyCallViewController {
 
     private func updateResourceSelectorTitle() {
         guard let button = resourceSelectorButton else { return }
-        let name = displayTitle(for: currentResourceIndex)
-        // Use a chevron to hint at the dropdown/picker affordance.
-        button.setTitle("\(name)  ▾", for: .normal)
+        let name = resourceName(for: currentResourceIndex)
+        if #available(iOS 15.0, *) {
+            // Keep the styled configuration (chevron is the config image); just
+            // update the title text.
+            button.configuration?.title = name
+        } else {
+            button.setTitle("\(name)  ▾", for: .normal)
+        }
+        // Refresh the menu so the checkmark tracks the active resource.
+        if #available(iOS 14.0, *) {
+            button.menu = makeResourceMenu()
+        }
+    }
+
+    /// Builds the resource dropdown: one entry per resource, with a doc/play
+    /// icon by type and a checkmark on the active one.
+    @available(iOS 14.0, *)
+    private func makeResourceMenu() -> UIMenu {
+        let actions: [UIAction] = sharableResourceItems.enumerated().map { (idx, item) in
+            let name = resourceName(for: idx)
+            let icon = UIImage(systemName: item.isVideo ? "play.rectangle.fill" : "doc.text.fill")
+            return UIAction(
+                title: name,
+                image: icon,
+                state: idx == currentResourceIndex ? .on : .off
+            ) { [weak self] _ in
+                self?.switchToResource(at: idx)
+            }
+        }
+        return UIMenu(title: "Select resource", children: actions)
     }
 
     @objc func handleResourceSelectorTapped() {
         guard sharableResourceItems.count > 1 else { return }
 
-        let sheet = UIAlertController(title: "Select document", message: nil, preferredStyle: .actionSheet)
+        let sheet = UIAlertController(title: "Select resource", message: nil, preferredStyle: .actionSheet)
         for (idx, _) in sharableResourceItems.enumerated() {
             let title = displayTitle(for: idx)
             let marker = (idx == currentResourceIndex) ? "✓ " : "   "
@@ -700,78 +911,15 @@ extension DailyCallViewController {
         present(sheet, animated: true)
     }
 
-    /// Tear down the current PDF view and rebuild with the selected resource.
-    /// Emits a final tracking snapshot for the outgoing document so the JS
-    /// side can record its stats before switching.
+    /// Switches the presented resource. Delegates to `mountContent`, which
+    /// finalizes/removes the outgoing content (PDF or video) and mounts the new
+    /// one, toggling the PDF-only chrome as needed. Works across type changes
+    /// (PDF <-> video).
     private func switchToResource(at index: Int) {
         guard index != currentResourceIndex else { return }
         guard index >= 0, index < sharableResourceItems.count else { return }
-        guard let pdfContainer = pdfContainerView else { return }
-
-        let next = sharableResourceItems[index]
-        guard let newURL = URL(string: next.url) else {
-            onPdfLoadError?("Invalid documentUrl")
-            return
-        }
-
-        // Flush stats for the outgoing PDF.
-        pdfDocumentView?.finalizeTracking()
-        closeActivePagePresentationEntry()
-
-        // Remove the old PDF view.
-        pdfDocumentView?.removeFromSuperview()
-        pdfDocumentView = nil
-
-        // Update state.
-        currentResourceIndex = index
-        documentUrlString = next.url
-        documentTitle = next.displayName
-        updateResourceSelectorTitle()
-
-        // Build a fresh PDF view bound to the same container, wire callbacks,
-        // and load.
-        let pdf = DocumentSharePdfView(url: newURL)
-        pdf.translatesAutoresizingMaskIntoConstraints = false
-        pdf.onPageChanged = { [weak self] page, total in
-            self?.onPdfPageChanged?(page, total)
-            self?.recordPagePresentation(pageNumber: page)
-            self?.showPageIndicator(current: page, total: total)
-        }
-        pdf.onTrackingUpdate = { [weak self] snapshot in
-            self?.onPdfTrackingUpdate?(snapshot)
-        }
-        pdf.onLoadError = { [weak self] message in
-            self?.onPdfLoadError?(message)
-        }
-        pdfContainer.addSubview(pdf)
-        pdfDocumentView = pdf
-
-        NSLayoutConstraint.activate([
-            pdf.topAnchor.constraint(equalTo: pdfContainer.topAnchor),
-            pdf.leadingAnchor.constraint(equalTo: pdfContainer.leadingAnchor),
-            pdf.trailingAnchor.constraint(equalTo: pdfContainer.trailingAnchor),
-            pdf.bottomAnchor.constraint(equalTo: pdfContainer.bottomAnchor),
-        ])
-
-        // Rebind the thumbnail sidebar to the new PDFView.
-        if let strip = thumbnailStripView {
-            for sub in strip.subviews {
-                if let thumb = sub as? DocumentShareThumbnailList {
-                    thumb.pdfView = pdf.pdfView
-                    pdf.onDocumentLoaded = { [weak thumb] _ in
-                        thumb?.reload()
-                    }
-                }
-            }
-        }
-
-        // Keep the selector and floating tiles above the new PDF view.
-        if let selector = resourceSelectorButton { pdfContainer.bringSubviewToFront(selector) }
-        if let toggle = thumbnailToggleButton { pdfContainer.bringSubviewToFront(toggle) }
-        if let strip = thumbnailStripView { pdfContainer.bringSubviewToFront(strip) }
-        if let pip = combinedPipContainerView { pip.superview?.bringSubviewToFront(pip) }
-
-        pdf.load()
+        guard pdfContainerView != nil else { return }
+        mountContent(at: index)
     }
 
     // MARK: - Finalization
@@ -781,6 +929,7 @@ extension DailyCallViewController {
     /// `pagePresentationTracking` snapshot.
     func finalizeDocumentShareTracking() {
         pdfDocumentView?.finalizeTracking()
+        videoDocumentView?.finalizePlayback()
         closeActivePagePresentationEntry()
     }
 

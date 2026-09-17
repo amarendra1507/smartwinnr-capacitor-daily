@@ -143,6 +143,14 @@ class DailyCallViewController: UIViewController {
         let id: String
         let url: String
         let displayName: String?
+        // 'pdf' (default) or 'video'. A video resource is rendered natively via
+        // DocumentShareVideoView (AVPlayer on hlsResourceUrl).
+        let resourceType: String?
+        let hlsResourceUrl: String?
+        let posterUrl: String?
+        let videoId: String?
+
+        var isVideo: Bool { return resourceType == "video" }
     }
     var sharableResourceItems: [SharableResourceItem] = []
     var currentResourceIndex: Int = 0
@@ -150,9 +158,23 @@ class DailyCallViewController: UIViewController {
     // Document share UI (lazily created only when the mode is activated)
     var pdfContainerView: UIView?
     var pdfDocumentView: DocumentSharePdfView?
+    // The currently-mounted content view (a DocumentSharePdfView OR a
+    // DocumentShareVideoView) filling pdfContainerView. Tracked generically so
+    // mounting/unmounting on resource switch is uniform across types.
+    var documentContentView: UIView?
+    var videoDocumentView: DocumentShareVideoView?
+    // Stored so a resource switch can rebind (PDF) or clear (video) the sidebar.
+    var thumbnailListView: DocumentShareThumbnailList?
+    // Stored so the layout can be torn down / recolored on type switch.
+    var docShareBackdropView: UIView?
     var floatingTilesOverlayView: UIView?
     var combinedPipContainerView: UIView?
     var resourceSelectorButton: UIButton?
+    // The top-left control bar (stack view) holding the thumbnail toggle and the
+    // resource selector. Stored so a content mount can raise it above the freshly
+    // added PDF/video view — its buttons are stack children, so bringing the
+    // buttons themselves to front on the container is a no-op.
+    var documentTopBarView: UIView?
     var thumbnailToggleButton: UIButton?
     var thumbnailStripView: UIView?
     var thumbnailDrawerLeadingConstraint: NSLayoutConstraint?
@@ -173,6 +195,9 @@ class DailyCallViewController: UIViewController {
     var onPdfTrackingUpdate: (([String: Any]) -> Void)?
     var onPdfLoadError: ((String) -> Void)?
     var onPagePresentationTracking: (([[String: Any]]) -> Void)?
+    // Video sharable-resource callbacks (bridged to `notifyListeners`).
+    var onVideoStateChanged: (([String: Any]) -> Void)?
+    var onVideoLoadError: ((String) -> Void)?
 
     // Page-presentation tracking (documentId / pageNumber / startTime /
     // endTime / timeSpentMs per entry). The app expects the full cumulative
